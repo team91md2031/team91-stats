@@ -34,4 +34,4 @@ export const sList = async (prefix) => {
     return snap.docs.map(d => d.data().key);
   } catch (e) { console.error('sList:', e); return []; }
 };
-Click "Commit changes". Let me know when done and I'll give you the big one — App.jsx.
+
