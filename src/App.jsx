@@ -1,4 +1,4 @@
-jsximport { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Undo2, Edit3, Plus, Check } from "lucide-react";
 import { sSet, sGet, sList } from "./firebase.js";
 
