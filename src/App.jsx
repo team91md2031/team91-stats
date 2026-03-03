@@ -42,8 +42,14 @@ const posAbbr = (p) => { const m={"Attack":"A","Attack/Midfield":"A/M","Midfield
 function mergeAllStats(rMap, roster) {
   const ps = {};
   roster.forEach((p) => { const k=p.name+"-"+p.number; if(!ps[k]) ps[k]={name:p.name,number:p.number,position:p.position,goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,opponentShots:0,faceoffsTaken:0,faceoffsWon:0,penalties:0}; });
-  const sm = {Goals:"goals",Assists:"assists","Shot on Goal":"shotsOnGoal","Shot Missed":"shotsMissed",Groundballs:"groundballs","Turnovers Caused":"cto",Penalty:"penalties"};
-  Object.entries(sm).forEach(([sT,f]) => { const mx={}; Object.values(rMap).forEach((d)=>{const ct={};(d.stats||[]).forEach((s)=>{if(s.type===sT&&s.player){const k=s.player+"-"+s.number;ct[k]=(ct[k]||0)+1;}});Object.entries(ct).forEach(([k,v])=>{mx[k]=Math.max(mx[k]||0,v);});}); Object.entries(mx).forEach(([k,v])=>{if(ps[k])ps[k][f]=v;}); });
+  const goalsBySeq = {};
+  Object.values(rMap).forEach((d) => { (d.stats || []).forEach((s) => { if (s.type === "Goals" && s.sequence) { if (!goalsBySeq[s.sequence]) goalsBySeq[s.sequence] = { player: s.player, number: s.number }; } }); });
+  Object.values(goalsBySeq).forEach((g) => { const k = g.player + "-" + g.number; if (ps[k]) ps[k].goals++; });
+  const assistsBySeq = {};
+  Object.values(rMap).forEach((d) => { (d.stats || []).forEach((s) => { if (s.type === "Assists" && s.goalSequence) { if (!assistsBySeq[s.goalSequence]) assistsBySeq[s.goalSequence] = { player: s.player, number: s.number }; } }); });
+  Object.values(assistsBySeq).forEach((a) => { const k = a.player + "-" + a.number; if (ps[k]) ps[k].assists++; });
+  const maxStats = {"Shot on Goal":"shotsOnGoal","Shot Missed":"shotsMissed",Groundballs:"groundballs","Turnovers Caused":"cto",Penalty:"penalties"};
+  Object.entries(maxStats).forEach(([sT,f]) => { const mx = {}; Object.values(rMap).forEach((d) => { const ct = {}; (d.stats || []).forEach((s) => { if(s.type===sT&&s.player){ const k=s.player+"-"+s.number; ct[k]=(ct[k]||0)+1; } }); Object.entries(ct).forEach(([k,v]) => { mx[k]=Math.max(mx[k]||0,v); }); }); Object.entries(mx).forEach(([k,v]) => { if(ps[k]) ps[k][f]=v; }); });
   const mxFT={},mxFW={};
   Object.values(rMap).forEach((d)=>{const t={},w={};(d.stats||[]).forEach((s)=>{if(s.type==="Faceoffs Won"||s.type==="Faceoffs Lost"){const k=s.player+"-"+s.number;t[k]=(t[k]||0)+1;if(s.type==="Faceoffs Won")w[k]=(w[k]||0)+1;}});Object.entries(t).forEach(([k,v])=>{mxFT[k]=Math.max(mxFT[k]||0,v);});Object.entries(w).forEach(([k,v])=>{mxFW[k]=Math.max(mxFW[k]||0,v);});});
   Object.entries(mxFT).forEach(([k,v])=>{if(ps[k])ps[k].faceoffsTaken=v;});
@@ -52,15 +58,13 @@ function mergeAllStats(rMap, roster) {
   Object.values(rMap).forEach((d)=>{const sv={},ga={};(d.stats||[]).forEach((s)=>{if(s.type==="Save"&&s.goalie){const gp=roster.find((x)=>x.name===s.goalie);if(gp){const k=gp.name+"-"+gp.number;sv[k]=(sv[k]||0)+1;}}if(s.type==="Goal Against"&&s.goalie){const gp=roster.find((x)=>x.name===s.goalie);if(gp){const k=gp.name+"-"+gp.number;ga[k]=(ga[k]||0)+1;}}});Object.entries(sv).forEach(([k,v])=>{mxSv[k]=Math.max(mxSv[k]||0,v);});Object.entries(ga).forEach(([k,v])=>{mxGA[k]=Math.max(mxGA[k]||0,v);});});
   Object.entries(mxSv).forEach(([k,v])=>{if(ps[k])ps[k].saves=v;});
   Object.keys(ps).forEach((k)=>{if(ps[k].saves>0||mxGA[k])ps[k].opponentShots=(ps[k].saves||0)+(mxGA[k]||0);});
-  return{playerStats:ps,totalGoals:Object.values(ps).reduce((s,p)=>s+p.goals,0),totalGA:Object.values(mxGA).reduce((s,v)=>s+v,0)};
+  return { playerStats:ps, totalGoals:Object.keys(goalsBySeq).length, totalGA:Object.values(mxGA).reduce((s,v)=>s+v,0) };
 }
 
 async function loadGameMerge(gId,roster){const keys=await sList("game:"+gId+":stats:");const rMap={},rNames=[];for(const k of keys){const nm=k.replace("game:"+gId+":stats:","");const d=await sGet(k);if(d){rMap[nm]=d;rNames.push(nm);}}return{merge:Object.keys(rMap).length?mergeAllStats(rMap,roster):null,recorders:rNames};}
 
 function LogoImg({size}){const sz=size||"lg";const[fail,setFail]=useState(false);const[idx,setIdx]=useState(0);const sc=sz==="sm"?"w-14 h-14":sz==="md"?"w-24 h-24":"w-32 h-32";const ts=sz==="sm"?"text-3xl":sz==="md"?"text-5xl":"text-7xl";if(fail)return(<div className="flex flex-col items-center"><div className={"font-black text-red-600 italic "+ts} style={{textShadow:"3px 3px 0 #000,-1px -1px 0 #FFD700",fontFamily:"Impact,Arial Black,sans-serif",letterSpacing:"-4px"}}>91</div>{sz==="lg"&&<div><h1 className="text-xl font-black text-black text-center">TEAM 91 MARYLAND</h1><div className="text-base font-bold text-red-600 text-center">2031</div></div>}</div>);return<img src={LOGO_URLS[idx]} alt="91" className={sc+" object-contain mx-auto"} onError={()=>{if(idx<LOGO_URLS.length-1)setIdx(idx+1);else setFail(true);}}/>;}
-
 function Btn({children,onClick,cls,disabled}){return<button onClick={onClick} disabled={disabled} className={"active:scale-95 transition-all "+(cls||"")}>{children}</button>;}
-
 function CopyBtn({label,doneLabel,cls}){const[d,setD]=useState(false);return<button onClick={async()=>{try{const el=document.getElementById("stats-table");const r=document.createRange();r.selectNode(el);window.getSelection().removeAllRanges();window.getSelection().addRange(r);document.execCommand("copy");window.getSelection().removeAllRanges();setD(true);setTimeout(()=>setD(false),2000);}catch(e){}}} className={"w-full py-3 rounded-lg font-black border-2 border-black active:scale-95 "+(d?"bg-green-600 text-white":"bg-blue-600 text-white")+" "+(cls||"")}>{d?doneLabel:label}</button>;}
 
 function StatsTable({playerStats}){
@@ -151,7 +155,6 @@ function AdminModal({adminInput,setAdminInput,adminErr,onUnlock,onCancel}){retur
     </div>
   </div></div>
 );}
-
 export default function App(){
   const[screen,setScreen]=useState("home");
   const[roster,setRoster]=useState([]);
@@ -207,6 +210,24 @@ export default function App(){
   const doDelete=async()=>{if(!confirmDelete)return;if(confirmDelete.type==="all")await saveGames([]);else await saveGames(games.filter((gm)=>gm.id!==confirmDelete.id));setConfirmDelete(null);};
   const openReview=async(g)=>{setCurGameId(g.id);setCurGame(g);setBusy(true);const res=await loadGameMerge(g.id,g.roster||roster);setMergedData(res.merge);setRecorderList(res.recorders);if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);}setBusy(false);setScreen("review");};
 
+  const joinGame=async(g,name)=>{
+    setCurGameId(g.id);setCurGame(g);setRecorderName(name);
+    const gr=g.roster||roster;
+    const gl=gr.filter(p=>p.position==="Goalie");
+    setActiveGoalie(gl.length?gl[0].name:"");
+    setCurrentPeriod(g.periods[0]);
+    const ex=await sGet("game:"+g.id+":stats:"+name);
+    if(ex){
+      setStats(ex.stats||[]);setGoalSeq(ex.goalSeq||0);setGaSeq(ex.gaSeq||0);
+    }else{
+      setStats([]);
+      const res=await loadGameMerge(g.id,gr);
+      if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);}
+      else{setGoalSeq(0);setGaSeq(0);}
+    }
+    setScreen("tracking");
+  };
+
   if(loading)return<div className="min-h-screen bg-gradient-to-br from-red-600 via-red-500 to-yellow-500 flex items-center justify-center"><div className="text-white text-2xl font-black">Loading...</div></div>;
 
   if(screen==="home"){
@@ -229,7 +250,7 @@ export default function App(){
             <div className="text-sm text-green-600 font-bold">{g.location}</div>
             {g.goalsFor!=null&&<div className="text-sm font-black text-gray-700 mt-1">Score: {g.goalsFor}-{g.goalsAgainst}</div>}
             <div className="flex gap-2 mt-2">
-              <Btn onClick={()=>{const nm=formName||prompt("Enter your name:");if(!nm)return;setFormName(nm);setCurGameId(g.id);setCurGame(g);setRecorderName(nm);const gl=g.roster?g.roster.filter(p=>p.position==="Goalie"):roster.filter(p=>p.position==="Goalie");setActiveGoalie(gl.length?gl[0].name:"");setCurrentPeriod(g.periods[0]);(async()=>{const ex=await sGet("game:"+g.id+":stats:"+nm);if(ex){setStats(ex.stats||[]);setGoalSeq(ex.goalSeq||0);setGaSeq(ex.gaSeq||0);}else{setStats([]);setGoalSeq(0);setGaSeq(0);}setScreen("tracking");})();}} cls="flex-1 py-1 bg-green-600 text-white rounded text-xs font-black border border-black">JOIN</Btn>
+              <Btn onClick={()=>{const nm=formName||prompt("Enter your name:");if(!nm)return;setFormName(nm);joinGame(g,nm);}} cls="flex-1 py-1 bg-green-600 text-white rounded text-xs font-black border border-black">JOIN</Btn>
               <Btn onClick={async()=>{await saveGames(games.map((x)=>x.id===g.id?{...x,status:"final"}:x));}} cls="flex-1 py-1 bg-gray-600 text-white rounded text-xs font-black border border-black">FINALIZE</Btn>
               <Btn onClick={()=>openReview(g)} cls="flex-1 py-1 bg-blue-600 text-white rounded text-xs font-black border border-black">STATS</Btn>
               {isAdmin&&<Btn onClick={()=>setConfirmDelete({type:"game",id:g.id,label:g.date+" vs "+g.opponent})} cls="py-1 px-2 bg-red-700 text-white rounded text-xs font-black border border-black">DEL</Btn>}
@@ -284,7 +305,7 @@ export default function App(){
       <div className="space-y-4">
         <div><label className="block text-sm font-bold text-gray-700 mb-1">Your Name</label><input type="text" value={formName} onChange={(e)=>setFormName(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg" placeholder="Your name"/></div>
         <div><label className="block text-sm font-bold text-gray-700 mb-1">Opponent</label><input type="text" value={ngOpp} onChange={(e)=>setNgOpp(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg" placeholder="Opponent name"/></div>
-        <div><label className="block text-sm font-bold text-gray-700 mb-1">Date</label><div className="relative"><input type="date" value={ngDate} onChange={(e)=>setNgDate(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg text-sm appearance-none" style={{WebkitAppearance:"none",MozAppearance:"none"}}/></div></div>
+        <div><label className="block text-sm font-bold text-gray-700 mb-1">Date</label><div><input type="date" value={ngDate} onChange={(e)=>setNgDate(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg text-sm appearance-none" style={{WebkitAppearance:"none",MozAppearance:"none"}}/></div></div>
         <div><label className="block text-sm font-bold text-gray-700 mb-1">Location</label><input type="text" value={ngLoc} onChange={(e)=>setNgLoc(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg" placeholder="Field/venue"/></div>
         <div><label className="block text-sm font-bold text-gray-700 mb-2">Format</label><div className="flex gap-4"><Btn onClick={()=>setNgPt("quarters")} cls={"flex-1 py-3 rounded-lg font-black border-2 border-black "+(ngPt==="quarters"?"bg-red-600 text-white":"bg-white text-gray-700")}>Quarters</Btn><Btn onClick={()=>setNgPt("halves")} cls={"flex-1 py-3 rounded-lg font-black border-2 border-black "+(ngPt==="halves"?"bg-red-600 text-white":"bg-white text-gray-700")}>Halves</Btn></div></div>
         <Btn onClick={async()=>{if(!formName)return;const id=genId();const per=ngPt==="quarters"?["Q1","Q2","Q3","Q4"]:["1st Half","2nd Half"];const ar=activeRoster();const g={id,date:ngDate,opponent:ngOpp,location:ngLoc,periodType:ngPt,periods:per,status:"active",roster:[...ar],goalsFor:null,goalsAgainst:null};await saveGames([g,...games]);await sSet("game:"+id+":info",g);setCurGameId(id);setCurGame(g);setRecorderName(formName);const gl=ar.filter(p=>p.position==="Goalie");setActiveGoalie(gl.length?gl[0].name:"");setCurrentPeriod(per[0]);setStats([]);setGoalSeq(0);setGaSeq(0);setScreen("tracking");}} disabled={!ngOpp||!ngLoc||!formName} cls="w-full bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400 disabled:bg-gray-400 disabled:border-gray-400">CREATE GAME</Btn>
