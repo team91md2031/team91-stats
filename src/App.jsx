@@ -8,7 +8,7 @@ const DEFAULT_ROSTER = [
   { id:"p3",name:"Hammond",number:3,position:"Attack/Midfield",active:true },
   { id:"p4",name:"Sunderland",number:5,position:"Defense",active:true },
   { id:"p5",name:"Oliver",number:6,position:"Attack/Midfield",active:true },
-  { id:"p6",name:"Jenkins",number:7,position:"Midfield",active:true },
+  { id:"p6",name:"Jenkins",number:7,position:"Defense",active:true },
   { id:"p7",name:"Warfield",number:8,position:"Attack",active:true },
   { id:"p8",name:"Bissel",number:9,position:"Goalie",active:true },
   { id:"p9",name:"Trader",number:12,position:"Defense",active:true },
@@ -41,7 +41,7 @@ const posAbbr = (p) => { const m={"Attack":"A","Attack/Midfield":"A/M","Midfield
 
 function mergeAllStats(rMap, roster) {
   const ps = {};
-  roster.forEach((p) => { const k=p.name+"-"+p.number; if(!ps[k]) ps[k]={name:p.name,number:p.number,position:p.position,goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,opponentShots:0,faceoffsTaken:0,faceoffsWon:0,penalties:0}; });
+  roster.forEach((p) => { const k=p.name+"-"+p.number; if(!ps[k]) ps[k]={name:p.name,number:p.number,position:p.position,goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,opponentShots:0,goalsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0}; });
   const goalsBySeq = {};
   Object.values(rMap).forEach((d) => { (d.stats || []).forEach((s) => { if (s.type === "Goals" && s.sequence) { if (!goalsBySeq[s.sequence]) goalsBySeq[s.sequence] = { player: s.player, number: s.number }; } }); });
   Object.values(goalsBySeq).forEach((g) => { const k = g.player + "-" + g.number; if (ps[k]) ps[k].goals++; });
@@ -57,7 +57,7 @@ function mergeAllStats(rMap, roster) {
   const mxSv={},mxGA={};
   Object.values(rMap).forEach((d)=>{const sv={},ga={};(d.stats||[]).forEach((s)=>{if(s.type==="Save"&&s.goalie){const gp=roster.find((x)=>x.name===s.goalie);if(gp){const k=gp.name+"-"+gp.number;sv[k]=(sv[k]||0)+1;}}if(s.type==="Goal Against"&&s.goalie){const gp=roster.find((x)=>x.name===s.goalie);if(gp){const k=gp.name+"-"+gp.number;ga[k]=(ga[k]||0)+1;}}});Object.entries(sv).forEach(([k,v])=>{mxSv[k]=Math.max(mxSv[k]||0,v);});Object.entries(ga).forEach(([k,v])=>{mxGA[k]=Math.max(mxGA[k]||0,v);});});
   Object.entries(mxSv).forEach(([k,v])=>{if(ps[k])ps[k].saves=v;});
-  Object.keys(ps).forEach((k)=>{if(ps[k].saves>0||mxGA[k])ps[k].opponentShots=(ps[k].saves||0)+(mxGA[k]||0);});
+  Object.keys(ps).forEach((k)=>{if(ps[k].saves>0||mxGA[k]){ps[k].opponentShots=(ps[k].saves||0)+(mxGA[k]||0);ps[k].goalsAgainst=mxGA[k]||0;}});
   return { playerStats:ps, totalGoals:Object.keys(goalsBySeq).length, totalGA:Object.values(mxGA).reduce((s,v)=>s+v,0) };
 }
 
@@ -69,7 +69,7 @@ function CopyBtn({label,doneLabel,cls}){const[d,setD]=useState(false);return<but
 
 function StatsTable({playerStats}){
   const hd=["#","Player","Pos","G","A","Shots","SOG","Shot%","GB","CTO","FO","FOW","FO%","SAV","GA","SV%","PEN"];
-  const tt={goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,opponentShots:0,faceoffsTaken:0,faceoffsWon:0,penalties:0};
+  const tt={goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,goalsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0};
   const sorted=sortForStats(Object.values(playerStats));
   sorted.forEach((p)=>Object.keys(tt).forEach((k)=>{tt[k]+=(p[k]||0);}));
   const ttShots=tt.goals+tt.shotsOnGoal+tt.shotsMissed;const ttSOG=tt.goals+tt.shotsOnGoal;
@@ -89,8 +89,8 @@ function StatsTable({playerStats}){
             <td className={C}>{p.cto||"-"}</td>
             <td className={C}>{p.faceoffsTaken||"-"}</td><td className={C}>{p.faceoffsWon||"-"}</td>
             <td className={C}>{pctFn(p.faceoffsWon||0,p.faceoffsTaken||0)}</td>
-            <td className={C}>{p.saves||"-"}</td><td className={C}>{p.opponentShots||"-"}</td>
-            <td className={C}>{pctFn(p.saves||0,p.opponentShots||0)}</td><td className={C}>{p.penalties||"-"}</td>
+            <td className={C}>{p.saves||"-"}</td><td className={C}>{p.goalsAgainst||"-"}</td>
+            <td className={C}>{pctFn(p.saves||0,(p.saves||0)+(p.goalsAgainst||0))}</td><td className={C}>{p.penalties||"-"}</td>
           </tr>);})}
         <tr className="bg-red-600 text-white font-black">
           <td className={CB} colSpan="3">TOTALS</td>
@@ -98,32 +98,32 @@ function StatsTable({playerStats}){
           <td className={CB}>{ttShots}</td><td className={CB}>{ttSOG}</td><td className={CB}>{pctFn(tt.goals,ttShots)}</td>
           <td className={CB}>{tt.groundballs}</td><td className={CB}>{tt.cto}</td>
           <td className={CB}>{tt.faceoffsTaken}</td><td className={CB}>{tt.faceoffsWon}</td><td className={CB}>{pctFn(tt.faceoffsWon,tt.faceoffsTaken)}</td>
-          <td className={CB}>{tt.saves}</td><td className={CB}>{tt.opponentShots}</td><td className={CB}>{pctFn(tt.saves,tt.opponentShots)}</td><td className={CB}>{tt.penalties}</td>
+          <td className={CB}>{tt.saves}</td><td className={CB}>{tt.goalsAgainst}</td><td className={CB}>{pctFn(tt.saves,tt.saves+tt.goalsAgainst)}</td><td className={CB}>{tt.penalties}</td>
         </tr>
       </tbody>
     </table></div>
   );
 }
 
-function PlayerSelectModal({title,subtitle,roster,onSelect,onCancel,skipLabel}){return(
+function PlayerSelectModal({title,subtitle,roster,onSelect,onCancel,skipLabel,highlighted}){return(
   <div className="fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto"><div className="min-h-screen flex items-center justify-center p-4"><div className="bg-white rounded-lg shadow-xl w-full max-w-md border-4 border-black my-8">
     <div className="bg-red-600 border-b-4 border-black p-4"><h3 className="text-xl font-black text-white">{title}</h3>{subtitle&&<p className="text-sm text-yellow-300 font-bold">{subtitle}</p>}</div>
     <div className="p-4">
       {skipLabel&&<button onClick={()=>onSelect(null)} className="w-full py-4 mb-3 bg-yellow-500 text-black rounded-lg font-black border-2 border-black active:scale-95">{skipLabel}</button>}
-      <div className="grid grid-cols-2 gap-2 mb-4">{sortForStats(roster).map((p)=>{const d=isDef(p);return<button key={p.id} onClick={()=>onSelect(p)} className={"py-3 px-4 rounded-lg text-left border-2 active:scale-95 "+(d?"bg-red-600 text-white border-black":"bg-gray-100 border-gray-300")}><div className={"font-black text-sm "+(d?"text-white":"text-gray-800")}>#{p.number} {p.name}</div><div className={"text-xs font-bold "+(d?"text-yellow-300":"text-gray-600")}>{posAbbr(p.position)}</div></button>;})}</div>
+      <div className="grid grid-cols-2 gap-2 mb-4">{sortForStats(roster).map((p)=>{const d=isDef(p);const hl=highlighted&&highlighted[p.id];return<button key={p.id} onClick={()=>onSelect(p)} className={"py-2 px-3 rounded-lg text-left border-2 active:scale-95 flex items-center gap-2 "+(hl?"bg-yellow-400 text-black border-yellow-600":d?"bg-red-600 text-white border-black":"bg-gray-100 border-gray-300")}><div className={"font-black text-2xl leading-none "+(hl?"text-black":d?"text-white":"text-gray-800")}>{p.number}</div><div><div className={"font-black text-xs "+(hl?"text-black":d?"text-white":"text-gray-800")}>{p.name}</div><div className={"text-xs font-bold "+(hl?"text-gray-700":d?"text-yellow-300":"text-gray-600")}>{posAbbr(p.position)}</div></div></button>;})}</div>
       {onCancel&&<button onClick={onCancel} className="w-full py-3 bg-gray-600 text-white rounded-lg font-black border-2 border-black active:scale-95">CANCEL</button>}
     </div>
   </div></div></div>
 );}
 
-function AssistSelectModal({goalPlayer,roster,onSelect}){return(
+function AssistSelectModal({goalPlayer,roster,onSelect,highlighted}){return(
   <div className="fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto"><div className="min-h-screen flex items-center justify-center p-4"><div className="bg-white rounded-lg shadow-xl w-full max-w-md border-4 border-black my-8">
     <div className="bg-red-600 border-b-4 border-black p-4"><h3 className="text-xl font-black text-white">WHO ASSISTED?</h3><p className="text-sm text-yellow-300 font-bold">Goal by {goalPlayer.name} #{goalPlayer.number}</p></div>
     <div className="p-4">
       <button onClick={()=>onSelect(null)} className="w-full py-4 mb-3 bg-yellow-500 text-black rounded-lg font-black border-2 border-black active:scale-95">UNASSISTED</button>
-      <div className="grid grid-cols-2 gap-2 mb-4">{sortForStats(roster).map((p)=>{const d=isDef(p);const isScorer=p.id===goalPlayer.id;
-        if(isScorer)return<div key={p.id} className="py-3 px-4 rounded-lg border-2 bg-gray-200 border-gray-300 opacity-40"><div className="font-black text-sm text-gray-400">#{p.number} {p.name}</div><div className="text-xs font-bold text-gray-400">{posAbbr(p.position)}</div></div>;
-        return<button key={p.id} onClick={()=>onSelect(p)} className={"py-3 px-4 rounded-lg text-left border-2 active:scale-95 "+(d?"bg-red-600 text-white border-black":"bg-gray-100 border-gray-300")}><div className={"font-black text-sm "+(d?"text-white":"text-gray-800")}>#{p.number} {p.name}</div><div className={"text-xs font-bold "+(d?"text-yellow-300":"text-gray-600")}>{posAbbr(p.position)}</div></button>;
+      <div className="grid grid-cols-2 gap-2 mb-4">{sortForStats(roster).map((p)=>{const d=isDef(p);const isScorer=p.id===goalPlayer.id;const hl=highlighted&&highlighted[p.id];
+        if(isScorer)return<div key={p.id} className="py-2 px-3 rounded-lg border-2 bg-gray-200 border-gray-300 opacity-40 flex items-center gap-2"><div className="font-black text-2xl leading-none text-gray-400">{p.number}</div><div><div className="font-black text-xs text-gray-400">{p.name}</div><div className="text-xs font-bold text-gray-400">{posAbbr(p.position)}</div></div></div>;
+        return<button key={p.id} onClick={()=>onSelect(p)} className={"py-2 px-3 rounded-lg text-left border-2 active:scale-95 flex items-center gap-2 "+(hl?"bg-yellow-400 text-black border-yellow-600":d?"bg-red-600 text-white border-black":"bg-gray-100 border-gray-300")}><div className={"font-black text-2xl leading-none "+(hl?"text-black":d?"text-white":"text-gray-800")}>{p.number}</div><div><div className={"font-black text-xs "+(hl?"text-black":d?"text-white":"text-gray-800")}>{p.name}</div><div className={"text-xs font-bold "+(hl?"text-gray-700":d?"text-yellow-300":"text-gray-600")}>{posAbbr(p.position)}</div></div></button>;
       })}</div>
     </div>
   </div></div></div>
@@ -189,6 +189,7 @@ export default function App(){
   const[adminInput,setAdminInput]=useState("");
   const[adminErr,setAdminErr]=useState("");
   const[confirmDelete,setConfirmDelete]=useState(null);
+  const[faceoffPlayers,setFaceoffPlayers]=useState({});
   const[loading,setLoading]=useState(true);
 
   useEffect(()=>{(async()=>{
@@ -216,6 +217,7 @@ export default function App(){
     const gl=gr.filter(p=>p.position==="Goalie");
     setActiveGoalie(gl.length?gl[0].name:"");
     setCurrentPeriod(g.periods[0]);
+    setFaceoffPlayers({});
     const ex=await sGet("game:"+g.id+":stats:"+name);
     if(ex){
       setStats(ex.stats||[]);setGoalSeq(ex.goalSeq||0);setGaSeq(ex.gaSeq||0);
@@ -308,7 +310,7 @@ export default function App(){
         <div><label className="block text-sm font-bold text-gray-700 mb-1">Date</label><div><input type="date" value={ngDate} onChange={(e)=>setNgDate(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg text-sm appearance-none" style={{WebkitAppearance:"none",MozAppearance:"none"}}/></div></div>
         <div><label className="block text-sm font-bold text-gray-700 mb-1">Location</label><input type="text" value={ngLoc} onChange={(e)=>setNgLoc(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg" placeholder="Field/venue"/></div>
         <div><label className="block text-sm font-bold text-gray-700 mb-2">Format</label><div className="flex gap-4"><Btn onClick={()=>setNgPt("quarters")} cls={"flex-1 py-3 rounded-lg font-black border-2 border-black "+(ngPt==="quarters"?"bg-red-600 text-white":"bg-white text-gray-700")}>Quarters</Btn><Btn onClick={()=>setNgPt("halves")} cls={"flex-1 py-3 rounded-lg font-black border-2 border-black "+(ngPt==="halves"?"bg-red-600 text-white":"bg-white text-gray-700")}>Halves</Btn></div></div>
-        <Btn onClick={async()=>{if(!formName)return;const id=genId();const per=ngPt==="quarters"?["Q1","Q2","Q3","Q4"]:["1st Half","2nd Half"];const ar=activeRoster();const g={id,date:ngDate,opponent:ngOpp,location:ngLoc,periodType:ngPt,periods:per,status:"active",roster:[...ar],goalsFor:null,goalsAgainst:null};await saveGames([g,...games]);await sSet("game:"+id+":info",g);setCurGameId(id);setCurGame(g);setRecorderName(formName);const gl=ar.filter(p=>p.position==="Goalie");setActiveGoalie(gl.length?gl[0].name:"");setCurrentPeriod(per[0]);setStats([]);setGoalSeq(0);setGaSeq(0);setScreen("tracking");}} disabled={!ngOpp||!ngLoc||!formName} cls="w-full bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400 disabled:bg-gray-400 disabled:border-gray-400">CREATE GAME</Btn>
+        <Btn onClick={async()=>{if(!formName)return;const id=genId();const per=ngPt==="quarters"?["Q1","Q2","Q3","Q4"]:["1st Half","2nd Half"];const ar=activeRoster();const g={id,date:ngDate,opponent:ngOpp,location:ngLoc,periodType:ngPt,periods:per,status:"active",roster:[...ar],goalsFor:null,goalsAgainst:null};await saveGames([g,...games]);await sSet("game:"+id+":info",g);setCurGameId(id);setCurGame(g);setRecorderName(formName);const gl=ar.filter(p=>p.position==="Goalie");setActiveGoalie(gl.length?gl[0].name:"");setCurrentPeriod(per[0]);setStats([]);setGoalSeq(0);setGaSeq(0);setFaceoffPlayers({});setScreen("tracking");}} disabled={!ngOpp||!ngLoc||!formName} cls="w-full bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400 disabled:bg-gray-400 disabled:border-gray-400">CREATE GAME</Btn>
       </div>
     </div></div></div>);
   }
@@ -329,7 +331,7 @@ export default function App(){
     const hSR=(r)=>{if(r==="Score"){setPendingGoal({player:pendingStat.player,sequence:goalSeq+1});}else{addStat({type:r==="On Goal"?"Shot on Goal":"Shot Missed",player:pendingStat.player.name,number:pendingStat.player.number});}setPendingStat(null);};
     const hOR=(r)=>{if(r==="Goal"){addStat({type:"Goal Against",sequence:gaSeq+1,goalie:activeGoalie});setGaSeq((p)=>p+1);}else{addStat({type:r==="Save"?"Save":"Opponent Shot Miss",goalie:activeGoalie});}setPendingStat(null);};
     const hPT=(pt)=>{addStat({type:"Penalty",penaltyType:pt,player:pendingStat.player.name,number:pendingStat.player.number});setPendingStat(null);};
-    const hFO=(r)=>{addStat({type:r==="Won"?"Faceoffs Won":"Faceoffs Lost",player:pendingStat.player.name,number:pendingStat.player.number});if(r==="Won"){setPendingStat({type:"FO-GB"});}else{setPendingStat(null);}};
+    const hFO=(r)=>{addStat({type:r==="Won"?"Faceoffs Won":"Faceoffs Lost",player:pendingStat.player.name,number:pendingStat.player.number});setFaceoffPlayers((prev)=>({...prev,[pendingStat.player.id]:true}));if(r==="Won"){setPendingStat({type:"FO-GB"});}else{setPendingStat(null);}};
     const hCTO=(choice)=>{addStat({type:"Turnovers Caused",player:pendingStat.player.name,number:pendingStat.player.number});if(choice==="Groundball"){setPendingStat({type:"CTO-GB"});}else{setPendingStat(null);}};
     const hGBSelect=(p)=>{if(p)addStat({type:"Groundballs",player:p.name,number:p.number});setPendingStat(null);};
     const undo=()=>{if(!stats.length)return;const l=stats[stats.length-1];if(l.type==="Goals")setGoalSeq((p)=>p-1);else if(l.type==="Goal Against")setGaSeq((p)=>p-1);setStats((p)=>p.slice(0,-1));};
@@ -366,15 +368,15 @@ export default function App(){
         </div>
         <Btn onClick={async()=>{setBusy(true);await saveMyStats();const res=await loadGameMerge(curGameId,gr);setMergedData(res.merge);setRecorderList(res.recorders);if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);const ng=games.map((g)=>g.id===curGameId?{...g,goalsFor:res.merge.totalGoals,goalsAgainst:res.merge.totalGA}:g);await saveGames(ng);setCurGame(ng.find((g)=>g.id===curGameId));}setBusy(false);setScreen("review");}} cls="w-full mt-4 bg-black text-yellow-400 py-4 rounded-lg font-black text-lg border-2 border-yellow-400">{busy?"SAVING...":"SUBMIT STATS"}</Btn>
       </div>
-      {showPlayerSelect&&!pendingGoal&&!pendingStat&&<PlayerSelectModal title="SELECT PLAYER" subtitle={showPlayerSelect} roster={gr} onSelect={hPS} onCancel={()=>setShowPlayerSelect(null)}/>}
-      {pendingGoal&&!showPlayerSelect&&!pendingStat&&<AssistSelectModal goalPlayer={pendingGoal.player} roster={gr} onSelect={hAS}/>}
+      {showPlayerSelect&&!pendingGoal&&!pendingStat&&<PlayerSelectModal title="SELECT PLAYER" subtitle={showPlayerSelect} roster={gr} onSelect={hPS} onCancel={()=>setShowPlayerSelect(null)} highlighted={faceoffPlayers}/>}
+      {pendingGoal&&!showPlayerSelect&&!pendingStat&&<AssistSelectModal goalPlayer={pendingGoal.player} roster={gr} onSelect={hAS} highlighted={faceoffPlayers}/>}
       {pendingStat?.type==="Shot"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="SHOT RESULT" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"SCORE",cls:"bg-green-500 text-white",action:()=>hSR("Score")},{label:"ON GOAL",cls:"bg-yellow-500 text-black",action:()=>hSR("On Goal")},{label:"MISS",cls:"bg-red-500 text-white",action:()=>hSR("Miss")}]} onCancel={()=>setPendingStat(null)}/>}
       {pendingStat?.type==="Opponent Shot"&&!showPlayerSelect&&<ModalChoice title="OPPONENT SHOT" subtitle={"Goalie: "+activeGoalie} choices={[{label:"SAVE",cls:"bg-green-500 text-white",action:()=>hOR("Save")},{label:"MISS",cls:"bg-yellow-500 text-black",action:()=>hOR("Miss")},{label:"GOAL",cls:"bg-red-500 text-white",action:()=>hOR("Goal")}]} onCancel={()=>setPendingStat(null)}/>}
       {pendingStat?.type==="Penalties"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="PENALTY" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"TECHNICAL (30s)",cls:"bg-yellow-500 text-black",action:()=>hPT("Technical Foul (30s)")},{label:"PERSONAL (60s)",cls:"bg-orange-500 text-white",action:()=>hPT("Personal Foul (60s)")},{label:"FLAGRANT (2-3min)",cls:"bg-red-500 text-white",action:()=>hPT("Flagrant Foul (2-3min)")}]} onCancel={()=>setPendingStat(null)}/>}
       {pendingStat?.type==="Faceoffs"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="FACEOFF" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"WON",cls:"bg-green-500 text-white",action:()=>hFO("Won")},{label:"LOST",cls:"bg-red-500 text-white",action:()=>hFO("Lost")}]} onCancel={()=>setPendingStat(null)}/>}
       {pendingStat?.type==="CTO"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="CAUSED TURNOVER" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"INTERCEPTION",cls:"bg-blue-600 text-white",action:()=>hCTO("Interception")},{label:"GROUNDBALL",cls:"bg-black text-white",action:()=>hCTO("Groundball")}]} onCancel={()=>setPendingStat(null)}/>}
-      {pendingStat?.type==="FO-GB"&&<PlayerSelectModal title="WHO GOT THE GROUNDBALL?" subtitle="After faceoff win" roster={gr} onSelect={hGBSelect} skipLabel="NO GROUNDBALL" onCancel={()=>setPendingStat(null)}/>}
-      {pendingStat?.type==="CTO-GB"&&<PlayerSelectModal title="WHO GOT THE GROUNDBALL?" subtitle="After caused turnover" roster={gr} onSelect={hGBSelect} onCancel={()=>setPendingStat(null)}/>}
+      {pendingStat?.type==="FO-GB"&&<PlayerSelectModal title="WHO GOT THE GROUNDBALL?" subtitle="After faceoff win" roster={gr} onSelect={hGBSelect} skipLabel="NO GROUNDBALL" onCancel={()=>setPendingStat(null)} highlighted={faceoffPlayers}/>}
+      {pendingStat?.type==="CTO-GB"&&<PlayerSelectModal title="WHO GOT THE GROUNDBALL?" subtitle="After caused turnover" roster={gr} onSelect={hGBSelect} onCancel={()=>setPendingStat(null)} highlighted={faceoffPlayers}/>}
       </div>);
   }
 
@@ -389,7 +391,7 @@ export default function App(){
         <div className="mb-4 text-center"><p className="font-bold text-gray-700"><span className="font-black">Opponent:</span> {curGame?.opponent}</p><p className="font-bold text-gray-700">{curGame?.date} - {curGame?.location}</p><p className="text-3xl font-black mt-2"><span className="text-red-600">{tG}</span> - <span className="text-gray-700">{tGA}</span></p></div>
         {recorderList.length>0&&<div className="mb-3 bg-blue-50 p-2 rounded-lg border-2 border-blue-200 text-center"><span className="text-sm font-black text-blue-800">{recorderList.length} recorder{recorderList.length>1?"s":""}: </span><span className="text-sm font-bold text-blue-700">{recorderList.join(", ")}</span></div>}
         <StatsTable playerStats={ps}/>
-        <div className="mt-4 text-xs text-gray-600"><p className="font-bold">G=Goals, A=Assists, Shots=Total, SOG=On Goal (incl goals), Shot%=G/Shots, GB=Groundballs, CTO=Caused TO, FO/FOW=Faceoffs, SAV=Saves, GA=Goals Against, PEN=Penalties</p></div>
+        <div className="mt-4 text-xs text-gray-600"><p className="font-bold">G=Goals, A=Assists, Shots=Total, SOG=On Goal (incl goals), Shot%=G/Shots, GB=Groundballs, CTO=Caused TO, FO/FOW=Faceoffs, SAV=Saves, GA=Goals Against, SV%=SAV/(SAV+GA), PEN=Penalties</p></div>
         <CopyBtn label="COPY TABLE" doneLabel="✓ COPIED!" cls="mt-4"/>
         <Btn onClick={async()=>{setBusy(true);const res=await loadGameMerge(curGameId,gr);if(res.merge)setMergedData(res.merge);setRecorderList(res.recorders);setBusy(false);}} cls="w-full mt-2 py-2 bg-blue-600 text-white rounded-lg font-black border-2 border-black">{busy?"REFRESHING...":"REFRESH DATA"}</Btn>
         {canReturn&&<Btn onClick={()=>{setScreen("tracking");}} cls="w-full mt-2 py-3 bg-green-600 text-white rounded-lg font-black border-2 border-black">RETURN TO GAME</Btn>}
@@ -400,7 +402,7 @@ export default function App(){
   if(screen==="multigame"){
     const fG=games.filter((g)=>g.status==="final"&&g.goalsFor!=null).sort((a,b)=>b.date.localeCompare(a.date));
     const toggle=(id)=>setSelectedGames((p)=>p.includes(id)?p.filter((x)=>x!==id):[...p,id]);
-    const agg=async()=>{setBusy(true);const allPs={};for(const gId of selectedGames){const g=games.find((x)=>x.id===gId);const res=await loadGameMerge(gId,gameRoster(g));if(res.merge){Object.entries(res.merge.playerStats).forEach(([k,p])=>{if(!allPs[k])allPs[k]={...p};else Object.keys(p).forEach((f)=>{if(typeof p[f]==="number")allPs[k][f]+=p[f];});});}}setMultiData({playerStats:allPs,gameCount:selectedGames.length});setBusy(false);};
+    const agg=async()=>{setBusy(true);const allPs={};for(const gId of selectedGames){const g=games.find((x)=>x.id===gId);const res=await loadGameMerge(gId,gameRoster(g));if(res.merge){Object.entries(res.merge.playerStats).forEach(([k,p])=>{if(!allPs[k])allPs[k]={...p};else Object.keys(p).forEach((f)=>{if(typeof p[f]==="number"&&f!=="number")allPs[k][f]+=p[f];});});}}setMultiData({playerStats:allPs,gameCount:selectedGames.length});setBusy(false);};
     return(
       <div className="min-h-screen bg-gradient-to-br from-red-600 via-red-500 to-yellow-500 p-4"><div className="max-w-6xl mx-auto"><div className="bg-white rounded-lg shadow-2xl p-6 mt-4 border-4 border-black">
         <Btn onClick={()=>{setScreen("home");setMultiData(null);}} cls="text-gray-500 font-black mb-4">← BACK</Btn>
