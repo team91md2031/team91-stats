@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { Undo2, Edit3, Plus, Check } from "lucide-react";
+import { Undo2, Edit3, Check } from "lucide-react";
 import { sSet, sGet, sList } from "./firebase.js";
 
 const DEFAULT_ROSTER = [
@@ -38,38 +38,64 @@ const sortForStats = (r) => [...r].sort((a,b)=>posGroup(a)-posGroup(b)||a.number
 const pctFn = (n,d) => d===0?"-":((n/d)*100).toFixed(1)+"%";
 const todayStr = () => new Date().toISOString().split("T")[0];
 const posAbbr = (p) => { const m={"Attack":"A","Attack/Midfield":"A/M","Midfield":"M","Defense":"Def","LSM":"LSM","Goalie":"G"}; return m[p]||p; };
+const fmtTime = (ts) => { if(!ts) return ""; const d=new Date(ts); return d.toLocaleTimeString([],{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false}); };
+
+function applyOverrides(playerStats, overrides) {
+  if(!overrides||Object.keys(overrides).length===0) return playerStats;
+  const result={...playerStats};
+  Object.entries(overrides).forEach(([k,v])=>{ if(result[k]) result[k]={...result[k],...v}; });
+  return result;
+}
 
 function mergeAllStats(rMap, roster) {
   const ps = {};
-  roster.forEach((p) => { const k=p.name+"-"+p.number; if(!ps[k]) ps[k]={name:p.name,number:p.number,position:p.position,goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,opponentShots:0,goalsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0}; });
-  const goalsBySeq = {};
-  Object.values(rMap).forEach((d) => { (d.stats || []).forEach((s) => { if (s.type === "Goals" && s.sequence) { if (!goalsBySeq[s.sequence]) goalsBySeq[s.sequence] = { player: s.player, number: s.number }; } }); });
-  Object.values(goalsBySeq).forEach((g) => { const k = g.player + "-" + g.number; if (ps[k]) ps[k].goals++; });
-  const assistsBySeq = {};
-  Object.values(rMap).forEach((d) => { (d.stats || []).forEach((s) => { if (s.type === "Assists" && s.goalSequence) { if (!assistsBySeq[s.goalSequence]) assistsBySeq[s.goalSequence] = { player: s.player, number: s.number }; } }); });
-  Object.values(assistsBySeq).forEach((a) => { const k = a.player + "-" + a.number; if (ps[k]) ps[k].assists++; });
-  const maxStats = {"Shot on Goal":"shotsOnGoal","Shot Missed":"shotsMissed",Groundballs:"groundballs","Turnovers Caused":"cto",Penalty:"penalties"};
-  Object.entries(maxStats).forEach(([sT,f]) => { const mx = {}; Object.values(rMap).forEach((d) => { const ct = {}; (d.stats || []).forEach((s) => { if(s.type===sT&&s.player){ const k=s.player+"-"+s.number; ct[k]=(ct[k]||0)+1; } }); Object.entries(ct).forEach(([k,v]) => { mx[k]=Math.max(mx[k]||0,v); }); }); Object.entries(mx).forEach(([k,v]) => { if(ps[k]) ps[k][f]=v; }); });
+  roster.forEach((p) => {
+    const k=p.name+"-"+p.number;
+    if(!ps[k]) ps[k]={name:p.name,number:p.number,position:p.position,goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,shotsAgainst:0,goalsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0};
+  });
+  const mxG={};
+  Object.values(rMap).forEach((d)=>{const ct={};(d.stats||[]).forEach((s)=>{if(s.type==="Goals"&&s.player){const k=s.player+"-"+s.number;ct[k]=(ct[k]||0)+1;}});Object.entries(ct).forEach(([k,v])=>{mxG[k]=Math.max(mxG[k]||0,v);});});
+  Object.entries(mxG).forEach(([k,v])=>{if(ps[k])ps[k].goals=v;});
+  const mxA={};
+  Object.values(rMap).forEach((d)=>{const ct={};(d.stats||[]).forEach((s)=>{if(s.type==="Assists"&&s.player){const k=s.player+"-"+s.number;ct[k]=(ct[k]||0)+1;}});Object.entries(ct).forEach(([k,v])=>{mxA[k]=Math.max(mxA[k]||0,v);});});
+  Object.entries(mxA).forEach(([k,v])=>{if(ps[k])ps[k].assists=v;});
+  const maxStats={"Shot on Goal":"shotsOnGoal","Shot Missed":"shotsMissed",Groundballs:"groundballs","Turnovers Caused":"cto",Penalty:"penalties"};
+  Object.entries(maxStats).forEach(([sT,f])=>{const mx={};Object.values(rMap).forEach((d)=>{const ct={};(d.stats||[]).forEach((s)=>{if(s.type===sT&&s.player){const k=s.player+"-"+s.number;ct[k]=(ct[k]||0)+1;}});Object.entries(ct).forEach(([k,v])=>{mx[k]=Math.max(mx[k]||0,v);});});Object.entries(mx).forEach(([k,v])=>{if(ps[k])ps[k][f]=v;});});
   const mxFT={},mxFW={};
   Object.values(rMap).forEach((d)=>{const t={},w={};(d.stats||[]).forEach((s)=>{if(s.type==="Faceoffs Won"||s.type==="Faceoffs Lost"){const k=s.player+"-"+s.number;t[k]=(t[k]||0)+1;if(s.type==="Faceoffs Won")w[k]=(w[k]||0)+1;}});Object.entries(t).forEach(([k,v])=>{mxFT[k]=Math.max(mxFT[k]||0,v);});Object.entries(w).forEach(([k,v])=>{mxFW[k]=Math.max(mxFW[k]||0,v);});});
   Object.entries(mxFT).forEach(([k,v])=>{if(ps[k])ps[k].faceoffsTaken=v;});
   Object.entries(mxFW).forEach(([k,v])=>{if(ps[k])ps[k].faceoffsWon=v;});
-  const mxSv={},mxGA={};
-  Object.values(rMap).forEach((d)=>{const sv={},ga={};(d.stats||[]).forEach((s)=>{if(s.type==="Save"&&s.goalie){const gp=roster.find((x)=>x.name===s.goalie);if(gp){const k=gp.name+"-"+gp.number;sv[k]=(sv[k]||0)+1;}}if(s.type==="Goal Against"&&s.goalie){const gp=roster.find((x)=>x.name===s.goalie);if(gp){const k=gp.name+"-"+gp.number;ga[k]=(ga[k]||0)+1;}}});Object.entries(sv).forEach(([k,v])=>{mxSv[k]=Math.max(mxSv[k]||0,v);});Object.entries(ga).forEach(([k,v])=>{mxGA[k]=Math.max(mxGA[k]||0,v);});});
-  Object.entries(mxSv).forEach(([k,v])=>{if(ps[k])ps[k].saves=v;});
-  Object.keys(ps).forEach((k)=>{if(ps[k].saves>0||mxGA[k]){ps[k].opponentShots=(ps[k].saves||0)+(mxGA[k]||0);ps[k].goalsAgainst=mxGA[k]||0;}});
-  return { playerStats:ps, totalGoals:Object.keys(goalsBySeq).length, totalGA:Object.values(mxGA).reduce((s,v)=>s+v,0) };
+  const mxSv={},mxGA={},mxSM={};
+  Object.values(rMap).forEach((d)=>{
+    const sv={},ga={},sm={};
+    (d.stats||[]).forEach((s)=>{
+      if((s.type==="Save"||s.type==="Goal Against"||s.type==="Opponent Shot Miss")&&s.goalie){
+        const gp=roster.find((x)=>x.name===s.goalie);
+        if(gp){const k=gp.name+"-"+gp.number;if(s.type==="Save")sv[k]=(sv[k]||0)+1;else if(s.type==="Goal Against")ga[k]=(ga[k]||0)+1;else if(s.type==="Opponent Shot Miss")sm[k]=(sm[k]||0)+1;}
+      }
+    });
+    Object.entries(sv).forEach(([k,v])=>{mxSv[k]=Math.max(mxSv[k]||0,v);});
+    Object.entries(ga).forEach(([k,v])=>{mxGA[k]=Math.max(mxGA[k]||0,v);});
+    Object.entries(sm).forEach(([k,v])=>{mxSM[k]=Math.max(mxSM[k]||0,v);});
+  });
+  Object.keys(ps).forEach((k)=>{const sv=mxSv[k]||0,ga=mxGA[k]||0,sm=mxSM[k]||0;if(sv>0||ga>0||sm>0){ps[k].saves=sv;ps[k].goalsAgainst=ga;ps[k].shotsAgainst=sv+ga+sm;}});
+  return{playerStats:ps,totalGoals:Object.values(mxG).reduce((s,v)=>s+v,0),totalGA:Object.values(mxGA).reduce((s,v)=>s+v,0)};
 }
 
-async function loadGameMerge(gId,roster){const keys=await sList("game:"+gId+":stats:");const rMap={},rNames=[];for(const k of keys){const nm=k.replace("game:"+gId+":stats:","");const d=await sGet(k);if(d){rMap[nm]=d;rNames.push(nm);}}return{merge:Object.keys(rMap).length?mergeAllStats(rMap,roster):null,recorders:rNames};}
+async function loadGameMerge(gId,roster){
+  const keys=await sList("game:"+gId+":stats:");
+  const rMap={},rNames=[];
+  for(const k of keys){const nm=k.replace("game:"+gId+":stats:","");const d=await sGet(k);if(d&&!d.deleted){rMap[nm]=d;rNames.push(nm);}}
+  return{merge:Object.keys(rMap).length?mergeAllStats(rMap,roster):null,recorders:rNames};
+}
 
 function LogoImg({size}){const sz=size||"lg";const[fail,setFail]=useState(false);const[idx,setIdx]=useState(0);const sc=sz==="sm"?"w-14 h-14":sz==="md"?"w-24 h-24":"w-32 h-32";const ts=sz==="sm"?"text-3xl":sz==="md"?"text-5xl":"text-7xl";if(fail)return(<div className="flex flex-col items-center"><div className={"font-black text-red-600 italic "+ts} style={{textShadow:"3px 3px 0 #000,-1px -1px 0 #FFD700",fontFamily:"Impact,Arial Black,sans-serif",letterSpacing:"-4px"}}>91</div>{sz==="lg"&&<div><h1 className="text-xl font-black text-black text-center">TEAM 91 MARYLAND</h1><div className="text-base font-bold text-red-600 text-center">2031</div></div>}</div>);return<img src={LOGO_URLS[idx]} alt="91" className={sc+" object-contain mx-auto"} onError={()=>{if(idx<LOGO_URLS.length-1)setIdx(idx+1);else setFail(true);}}/>;}
 function Btn({children,onClick,cls,disabled}){return<button onClick={onClick} disabled={disabled} className={"active:scale-95 transition-all "+(cls||"")}>{children}</button>;}
 function CopyBtn({label,doneLabel,cls}){const[d,setD]=useState(false);return<button onClick={async()=>{try{const el=document.getElementById("stats-table");const r=document.createRange();r.selectNode(el);window.getSelection().removeAllRanges();window.getSelection().addRange(r);document.execCommand("copy");window.getSelection().removeAllRanges();setD(true);setTimeout(()=>setD(false),2000);}catch(e){}}} className={"w-full py-3 rounded-lg font-black border-2 border-black active:scale-95 "+(d?"bg-green-600 text-white":"bg-blue-600 text-white")+" "+(cls||"")}>{d?doneLabel:label}</button>;}
 
 function StatsTable({playerStats}){
-  const hd=["#","Player","Pos","G","A","Shots","SOG","Shot%","GB","CTO","FO","FOW","FO%","SAV","GA","SV%","PEN"];
-  const tt={goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,goalsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0};
+  const hd=["#","Player","Pos","G","A","Shots","SOG","Shot%","GB","CTO","FO","FOW","FO%","SAV","GA","SA","SV%","PEN"];
+  const tt={goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,goalsAgainst:0,shotsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0};
   const sorted=sortForStats(Object.values(playerStats));
   sorted.forEach((p)=>Object.keys(tt).forEach((k)=>{tt[k]+=(p[k]||0);}));
   const ttShots=tt.goals+tt.shotsOnGoal+tt.shotsMissed;const ttSOG=tt.goals+tt.shotsOnGoal;
@@ -90,7 +116,9 @@ function StatsTable({playerStats}){
             <td className={C}>{p.faceoffsTaken||"-"}</td><td className={C}>{p.faceoffsWon||"-"}</td>
             <td className={C}>{pctFn(p.faceoffsWon||0,p.faceoffsTaken||0)}</td>
             <td className={C}>{p.saves||"-"}</td><td className={C}>{p.goalsAgainst||"-"}</td>
-            <td className={C}>{pctFn(p.saves||0,(p.saves||0)+(p.goalsAgainst||0))}</td><td className={C}>{p.penalties||"-"}</td>
+            <td className={C}>{p.shotsAgainst||"-"}</td>
+            <td className={C}>{pctFn(p.saves||0,(p.saves||0)+(p.goalsAgainst||0))}</td>
+            <td className={C}>{p.penalties||"-"}</td>
           </tr>);})}
         <tr className="bg-red-600 text-white font-black">
           <td className={CB} colSpan="3">TOTALS</td>
@@ -98,7 +126,8 @@ function StatsTable({playerStats}){
           <td className={CB}>{ttShots}</td><td className={CB}>{ttSOG}</td><td className={CB}>{pctFn(tt.goals,ttShots)}</td>
           <td className={CB}>{tt.groundballs}</td><td className={CB}>{tt.cto}</td>
           <td className={CB}>{tt.faceoffsTaken}</td><td className={CB}>{tt.faceoffsWon}</td><td className={CB}>{pctFn(tt.faceoffsWon,tt.faceoffsTaken)}</td>
-          <td className={CB}>{tt.saves}</td><td className={CB}>{tt.goalsAgainst}</td><td className={CB}>{pctFn(tt.saves,tt.saves+tt.goalsAgainst)}</td><td className={CB}>{tt.penalties}</td>
+          <td className={CB}>{tt.saves}</td><td className={CB}>{tt.goalsAgainst}</td><td className={CB}>{tt.shotsAgainst}</td>
+          <td className={CB}>{pctFn(tt.saves,tt.saves+tt.goalsAgainst)}</td><td className={CB}>{tt.penalties}</td>
         </tr>
       </tbody>
     </table></div>
@@ -122,16 +151,45 @@ function AssistSelectModal({goalPlayer,roster,onSelect,highlighted}){return(
     <div className="p-4">
       <button onClick={()=>onSelect(null)} className="w-full py-4 mb-3 bg-yellow-500 text-black rounded-lg font-black border-2 border-black active:scale-95">UNASSISTED</button>
       <div className="grid grid-cols-2 gap-2 mb-4">{sortForStats(roster).map((p)=>{const d=isDef(p);const isScorer=p.id===goalPlayer.id;const hl=highlighted&&highlighted[p.id];
-        if(isScorer)return<div key={p.id} className="py-2 px-2 rounded-lg border-2 bg-gray-200 border-gray-300 opacity-40 flex items-center gap-2"><div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-black text-lg bg-gray-400 text-white">{p.number}</div><div><div className="font-black text-xs text-gray-400">{p.name}</div><div className="text-xs font-bold text-gray-400">{posAbbr(p.position)}</div></div></div>;
+        if(isScorer)return<div key={p.id} className="py-2 px-2 rounded-lg border-2 bg-gray-200 border-gray-300 opacity-40 flex items-center gap-2"><div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-black text-lg bg-gray-400 text-white">{p.number}</div><div><div className="font-black text-xs text-gray-400">{p.name}</div></div></div>;
         return<button key={p.id} onClick={()=>onSelect(p)} className={"py-2 px-2 rounded-lg text-left border-2 active:scale-95 flex items-center gap-2 "+(hl?"bg-yellow-400 text-black border-yellow-600":d?"bg-red-600 text-white border-black":"bg-gray-100 border-gray-300")}><div className={"w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 font-black text-lg "+(hl?"bg-black text-white":d?"bg-white text-red-600":"bg-black text-white")}>{p.number}</div><div><div className={"font-black text-xs "+(hl?"text-black":d?"text-white":"text-gray-800")}>{p.name}</div><div className={"text-xs font-bold "+(hl?"text-gray-700":d?"text-yellow-300":"text-gray-600")}>{posAbbr(p.position)}</div></div></button>;
       })}</div>
     </div>
   </div></div></div>
 );}
 
+// ── Opponent Shot modal — goalie shown prominently ──
+function OpponentShotModal({activeGoalie,goalieNumber,onResult,onCancel}){
+  return(
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-sm w-full border-4 border-black">
+        <div className="bg-red-600 border-b-4 border-black p-4">
+          <h3 className="text-xl font-black text-white">OPPONENT SHOT</h3>
+          <p className="text-xs text-yellow-200 font-bold mt-1">Confirm goalie before selecting result</p>
+        </div>
+        {/* Prominent goalie display */}
+        <div className="bg-yellow-400 border-b-4 border-black px-4 py-3 flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-black flex items-center justify-center font-black text-yellow-400 text-lg flex-shrink-0">{goalieNumber??""}</div>
+          <div>
+            <div className="text-xs font-black text-gray-700 uppercase tracking-wide">Active Goalie</div>
+            <div className="text-xl font-black text-black">{activeGoalie||"None set"}</div>
+          </div>
+          <div className="ml-auto text-2xl">🧤</div>
+        </div>
+        <div className="p-4 space-y-3">
+          <button onClick={()=>onResult("Save")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-green-500 text-white text-lg">SAVE</button>
+          <button onClick={()=>onResult("Miss")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-yellow-500 text-black text-lg">MISS (wide/over)</button>
+          <button onClick={()=>onResult("Goal")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-red-500 text-white text-lg">GOAL AGAINST</button>
+          <button onClick={onCancel} className="w-full py-3 bg-gray-600 text-white rounded-lg font-black border-2 border-black active:scale-95">CANCEL</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModalChoice({title,subtitle,choices,onCancel}){return(
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-lg shadow-xl max-w-sm w-full border-4 border-black">
-    <div className="bg-red-600 border-b-4 border-black p-4"><h3 className="text-xl font-black text-white">{title}</h3><p className="text-sm text-yellow-300 font-bold">{subtitle}</p></div>
+    <div className="bg-red-600 border-b-4 border-black p-4"><h3 className="text-xl font-black text-white">{title}</h3>{subtitle&&<p className="text-sm text-yellow-300 font-bold">{subtitle}</p>}</div>
     <div className="p-4 space-y-3">{choices.map((c,i)=><button key={i} onClick={c.action} className={"w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 "+c.cls}>{c.label}</button>)}{onCancel&&<button onClick={onCancel} className="w-full py-3 bg-gray-600 text-white rounded-lg font-black border-2 border-black active:scale-95">CANCEL</button>}</div>
   </div></div>
 );}
@@ -155,6 +213,71 @@ function AdminModal({adminInput,setAdminInput,adminErr,onUnlock,onCancel}){retur
     </div>
   </div></div>
 );}
+
+function StatEditModal({stat,roster,onSave,onDelete,onCancel}){
+  const[s,setS]=useState({...stat});
+  const goalies=roster.filter(p=>p.position==="Goalie");
+  const isGoalieStat=["Save","Goal Against","Opponent Shot Miss"].includes(s.type);
+  const isPlayerStat=["Goals","Assists","Shot on Goal","Shot Missed","Groundballs","Turnovers Caused","Faceoffs Won","Faceoffs Lost","Penalty"].includes(s.type);
+  const setPlayer=(name)=>{const p=sortForStats(roster).find(x=>x.name===name);if(p)setS(prev=>({...prev,player:p.name,number:p.number}));};
+  const typeColor=(t)=>{if(t==="Goals")return"bg-green-100 text-green-800 border-green-400";if(t==="Goal Against")return"bg-red-100 text-red-800 border-red-400";if(t==="Save")return"bg-blue-100 text-blue-800 border-blue-400";if(t==="Assists")return"bg-yellow-100 text-yellow-800 border-yellow-400";return"bg-gray-100 text-gray-700 border-gray-300";};
+  return(
+    <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg shadow-xl max-w-sm w-full border-4 border-black">
+        <div className="bg-gray-800 border-b-4 border-black p-4"><h3 className="text-xl font-black text-white">EDIT STAT</h3><span className={"text-xs font-black px-2 py-1 rounded border mt-1 inline-block "+typeColor(s.type)}>{s.type}</span>{s.timestamp&&<span className="text-xs text-gray-400 font-bold ml-2">{fmtTime(s.timestamp)}</span>}</div>
+        <div className="p-4 space-y-3">
+          {isGoalieStat&&<div><label className="block text-xs font-black text-gray-700 mb-1">GOALIE</label><select value={s.goalie||""} onChange={e=>setS(prev=>({...prev,goalie:e.target.value}))} className="w-full px-3 py-2 border-2 border-black rounded-lg font-bold text-sm bg-white">{goalies.map(g=><option key={g.id} value={g.name}>{g.name} #{g.number}</option>)}<option value="">— Unknown —</option></select></div>}
+          {isPlayerStat&&<div><label className="block text-xs font-black text-gray-700 mb-1">PLAYER</label><select value={s.player||""} onChange={e=>setPlayer(e.target.value)} className="w-full px-3 py-2 border-2 border-black rounded-lg font-bold text-sm bg-white">{sortForStats(roster).map(p=><option key={p.id} value={p.name}>{p.name} #{p.number} ({posAbbr(p.position)})</option>)}</select></div>}
+          <button onClick={()=>onSave(s)} className="w-full py-3 bg-green-600 text-white rounded-lg font-black border-2 border-black active:scale-95">SAVE CHANGES</button>
+          <button onClick={onDelete} className="w-full py-2 bg-red-700 text-white rounded-lg font-black border-2 border-black active:scale-95">DELETE THIS STAT</button>
+          <button onClick={onCancel} className="w-full py-2 bg-gray-500 text-white rounded-lg font-black border-2 border-black active:scale-95">CANCEL</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const EDITABLE_FIELDS=[
+  {key:"goals",label:"G"},{key:"assists",label:"A"},{key:"shotsOnGoal",label:"SOG"},
+  {key:"shotsMissed",label:"Miss"},{key:"groundballs",label:"GB"},{key:"cto",label:"CTO"},
+  {key:"faceoffsTaken",label:"FO"},{key:"faceoffsWon",label:"FOW"},{key:"saves",label:"SAV"},
+  {key:"goalsAgainst",label:"GA"},{key:"shotsAgainst",label:"SA"},{key:"penalties",label:"PEN"},
+];
+
+function EditFinalStats({playerStats,onSave,onClearOverrides,hasOverrides}){
+  const[local,setLocal]=useState(()=>{const o={};Object.entries(playerStats).forEach(([k,p])=>{o[k]={...p};});return o;});
+  const[expandedKey,setExpandedKey]=useState(null);
+  const[saved,setSaved]=useState(false);
+  const sorted=sortForStats(Object.values(local));
+  const setField=(pk,field,val)=>setLocal(prev=>({...prev,[pk]:{...prev[pk],[field]:parseInt(val)||0}}));
+  const handleSave=async()=>{await onSave(local);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+  return(
+    <div>
+      <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-3 mb-4 text-sm">
+        <p className="font-black text-yellow-800">⚠️ DIRECT EDIT MODE</p>
+        <p className="text-yellow-700 font-bold mt-1">Changes override merged data. Raw recorder sheets are preserved.</p>
+      </div>
+      {hasOverrides&&<button onClick={onClearOverrides} className="w-full mb-3 py-2 bg-orange-100 text-orange-800 border-2 border-orange-400 rounded-lg font-black text-sm active:scale-95">↺ CLEAR OVERRIDES — revert to merged data</button>}
+      <div className="space-y-2">
+        {sorted.map((p)=>{
+          const pk=p.name+"-"+p.number;const cur=local[pk]||p;const isExp=expandedKey===pk;
+          const shots=(cur.goals||0)+(cur.shotsOnGoal||0)+(cur.shotsMissed||0);
+          return<div key={pk} className="border-2 border-gray-300 rounded-lg overflow-hidden">
+            <button onClick={()=>setExpandedKey(isExp?null:pk)} className={"w-full p-3 flex justify-between items-center "+(isExp?"bg-gray-800 text-white":"bg-gray-100 text-gray-800 hover:bg-gray-200")}>
+              <span className="font-black text-sm">#{p.number} {p.name} <span className={isExp?"text-gray-400":"text-gray-500"}>{posAbbr(p.position)}</span></span>
+              <span className={"text-xs font-bold "+(isExp?"text-gray-300":"text-gray-500")}>{cur.goals||0}G {cur.assists||0}A {shots}Sh {isExp?"▲":"▼"}</span>
+            </button>
+            {isExp&&<div className="p-3 bg-white"><div className="grid grid-cols-3 gap-2">{EDITABLE_FIELDS.map(({key,label})=>(
+              <div key={key} className="flex flex-col items-center"><label className="text-xs font-black text-gray-600 mb-1">{label}</label><input type="number" min="0" value={cur[key]||0} onChange={e=>setField(pk,key,e.target.value)} className="w-full text-center px-1 py-2 border-2 border-black rounded font-black text-base"/></div>
+            ))}</div></div>}
+          </div>;
+        })}
+      </div>
+      <button onClick={handleSave} className={"w-full mt-4 py-3 rounded-lg font-black border-2 border-black active:scale-95 "+(saved?"bg-green-600 text-white border-green-700":"bg-black text-yellow-400 border-yellow-400")}>{saved?"✓ SAVED!":"SAVE FINAL STATS"}</button>
+    </div>
+  );
+}
+
 export default function App(){
   const[screen,setScreen]=useState("home");
   const[roster,setRoster]=useState([]);
@@ -162,7 +285,6 @@ export default function App(){
   const[curGameId,setCurGameId]=useState(null);
   const[curGame,setCurGame]=useState(null);
   const[recorderName,setRecorderName]=useState("");
-  const[currentPeriod,setCurrentPeriod]=useState("");
   const[activeGoalie,setActiveGoalie]=useState("");
   const[stats,setStats]=useState([]);
   const[goalSeq,setGoalSeq]=useState(0);
@@ -177,7 +299,6 @@ export default function App(){
   const[ngOpp,setNgOpp]=useState("");
   const[ngDate,setNgDate]=useState(todayStr());
   const[ngLoc,setNgLoc]=useState("");
-  const[ngPt,setNgPt]=useState("quarters");
   const[editPlayer,setEditPlayer]=useState(null);
   const[epName,setEpName]=useState("");
   const[epNum,setEpNum]=useState("");
@@ -191,6 +312,12 @@ export default function App(){
   const[confirmDelete,setConfirmDelete]=useState(null);
   const[faceoffPlayers,setFaceoffPlayers]=useState({});
   const[loading,setLoading]=useState(true);
+  const[reviewTab,setReviewTab]=useState("merged");
+  const[allRecStats,setAllRecStats]=useState({});
+  const[expandedRec,setExpandedRec]=useState(null);
+  const[editStatEntry,setEditStatEntry]=useState(null);
+  const[recStatsLoading,setRecStatsLoading]=useState(false);
+  const[overrides,setOverrides]=useState({});
 
   useEffect(()=>{(async()=>{
     let r=await sGet("roster:current");if(!r){r=DEFAULT_ROSTER;await sSet("roster:current",r);}
@@ -209,24 +336,65 @@ export default function App(){
   const activeRoster=()=>roster.filter((p)=>p.active!==false);
   const doAdminUnlock=()=>{if(adminInput==="Team91"){setIsAdmin(true);setShowAdminPrompt(false);setAdminErr("");}else{setAdminErr("Incorrect passcode");setAdminInput("");}};
   const doDelete=async()=>{if(!confirmDelete)return;if(confirmDelete.type==="all")await saveGames([]);else await saveGames(games.filter((gm)=>gm.id!==confirmDelete.id));setConfirmDelete(null);};
-  const openReview=async(g)=>{setCurGameId(g.id);setCurGame(g);setBusy(true);const res=await loadGameMerge(g.id,g.roster||roster);setMergedData(res.merge);setRecorderList(res.recorders);if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);}setBusy(false);setScreen("review");};
+
+  const loadAllRecStats=async(gId)=>{
+    setRecStatsLoading(true);const keys=await sList("game:"+gId+":stats:");const result={};
+    for(const k of keys){const nm=k.replace("game:"+gId+":stats:","");const d=await sGet(k);if(d)result[nm]=d;}
+    setAllRecStats(result);setRecStatsLoading(false);
+  };
+
+  const refreshMerge=async(gId,gr)=>{
+    const res=await loadGameMerge(gId,gr);
+    if(res.merge){setMergedData(res.merge);setRecorderList(res.recorders);const ng=games.map(g=>g.id===gId?{...g,goalsFor:res.merge.totalGoals,goalsAgainst:res.merge.totalGA}:g);await saveGames(ng);}
+    return res;
+  };
+
+  const doSaveStatEdit=async(newStat,gr)=>{
+    const{recorder,idx}=editStatEntry;const recData={...(allRecStats[recorder]||{})};
+    const newStats=[...(recData.stats||[])];newStats[idx]=newStat;recData.stats=newStats;
+    await sSet("game:"+curGameId+":stats:"+recorder,recData);
+    setAllRecStats(prev=>({...prev,[recorder]:recData}));await refreshMerge(curGameId,gr);setEditStatEntry(null);
+  };
+
+  const doDeleteStatEntry=async(gr)=>{
+    const{recorder,idx}=editStatEntry;const recData={...(allRecStats[recorder]||{})};
+    recData.stats=(recData.stats||[]).filter((_,i)=>i!==idx);
+    await sSet("game:"+curGameId+":stats:"+recorder,recData);
+    setAllRecStats(prev=>({...prev,[recorder]:recData}));await refreshMerge(curGameId,gr);setEditStatEntry(null);
+  };
+
+  const doDeleteRecorder=async(recorderNm,gr)=>{
+    await sSet("game:"+curGameId+":stats:"+recorderNm,{stats:[],goalSeq:0,gaSeq:0,deleted:true});
+    setAllRecStats(prev=>{const n={...prev};n[recorderNm]={...n[recorderNm],deleted:true};return n;});
+    setExpandedRec(null);await refreshMerge(curGameId,gr);
+  };
+
+  const doSaveOverrides=async(editedStats)=>{
+    const ovr={};Object.entries(editedStats).forEach(([k,p])=>{ovr[k]={...p};});
+    setOverrides(ovr);await sSet("game:"+curGameId+":overrides",ovr);
+    const totalG=Object.values(ovr).reduce((s,p)=>s+(p.goals||0),0);
+    const totalGA=Object.values(ovr).reduce((s,p)=>s+(p.goalsAgainst||0),0);
+    const ng=games.map(g=>g.id===curGameId?{...g,goalsFor:totalG,goalsAgainst:totalGA}:g);await saveGames(ng);
+  };
+
+  const doClearOverrides=async()=>{setOverrides({});await sSet("game:"+curGameId+":overrides",{});};
+
+  const openReview=async(g)=>{
+    setCurGameId(g.id);setCurGame(g);setBusy(true);
+    setReviewTab("merged");setAllRecStats({});setExpandedRec(null);setEditStatEntry(null);setOverrides({});
+    const res=await loadGameMerge(g.id,g.roster||roster);setMergedData(res.merge);setRecorderList(res.recorders);
+    if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);}
+    const ovr=await sGet("game:"+g.id+":overrides")||{};setOverrides(ovr);
+    setBusy(false);setScreen("review");
+  };
 
   const joinGame=async(g,name)=>{
     setCurGameId(g.id);setCurGame(g);setRecorderName(name);
-    const gr=g.roster||roster;
-    const gl=gr.filter(p=>p.position==="Goalie");
-    setActiveGoalie(gl.length?gl[0].name:"");
-    setCurrentPeriod(g.periods[0]);
-    setFaceoffPlayers({});
+    const gr=g.roster||roster;const gl=gr.filter(p=>p.position==="Goalie");
+    setActiveGoalie(gl.length?gl[0].name:"");setFaceoffPlayers({});
     const ex=await sGet("game:"+g.id+":stats:"+name);
-    if(ex){
-      setStats(ex.stats||[]);setGoalSeq(ex.goalSeq||0);setGaSeq(ex.gaSeq||0);
-    }else{
-      setStats([]);
-      const res=await loadGameMerge(g.id,gr);
-      if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);}
-      else{setGoalSeq(0);setGaSeq(0);}
-    }
+    if(ex){setStats(ex.stats||[]);setGoalSeq(ex.goalSeq||0);setGaSeq(ex.gaSeq||0);}
+    else{setStats([]);const res=await loadGameMerge(g.id,gr);if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);}else{setGoalSeq(0);setGaSeq(0);}}
     setScreen("tracking");
   };
 
@@ -237,19 +405,15 @@ export default function App(){
     const pastG=games.filter((g)=>g.status==="final").sort((a,b)=>b.date.localeCompare(a.date));
     return(
       <div className="min-h-screen bg-gradient-to-br from-red-600 via-red-500 to-yellow-500 p-4"><div className="max-w-md mx-auto"><div className="bg-white rounded-lg shadow-2xl p-6 mt-4 border-4 border-black relative">
-        {!isAdmin
-          ?<button onClick={()=>{setShowAdminPrompt(true);setAdminInput("");setAdminErr("");}} className="absolute top-3 right-3 text-xs font-bold text-gray-400">ADMIN</button>
-          :<div className="absolute top-3 right-3 flex items-center gap-1"><span className="text-xs font-black text-yellow-700 bg-yellow-100 px-2 py-1 rounded border border-yellow-400">ADMIN</span><button onClick={()=>setIsAdmin(false)} className="text-xs font-bold text-gray-400 underline">lock</button></div>
-        }
+        {!isAdmin?<button onClick={()=>{setShowAdminPrompt(true);setAdminInput("");setAdminErr("");}} className="absolute top-3 right-3 text-xs font-bold text-gray-400">ADMIN</button>:<div className="absolute top-3 right-3 flex items-center gap-1"><span className="text-xs font-black text-yellow-700 bg-yellow-100 px-2 py-1 rounded border border-yellow-400">ADMIN</span><button onClick={()=>setIsAdmin(false)} className="text-xs font-bold text-gray-400 underline">lock</button></div>}
         <div className="flex flex-col items-center mb-6"><LogoImg size="lg"/><div className="mt-2 text-sm font-bold text-gray-500">STAT TRACKER</div></div>
         <div className="space-y-3">
-          <Btn onClick={()=>{setNgOpp("");setNgDate(todayStr());setNgLoc("");setNgPt("quarters");setScreen("newgame");}} cls="w-full bg-red-600 text-white py-4 rounded-lg font-black text-lg border-2 border-black">NEW GAME</Btn>
+          <Btn onClick={()=>{setNgOpp("");setNgDate(todayStr());setNgLoc("");setScreen("newgame");}} cls="w-full bg-red-600 text-white py-4 rounded-lg font-black text-lg border-2 border-black">NEW GAME</Btn>
           <Btn onClick={()=>{setSelectedGames([]);setMultiData(null);setScreen("multigame");}} cls="w-full bg-yellow-400 text-black py-3 rounded-lg font-black border-2 border-black">SEASON STATS</Btn>
         </div>
         {actG.length>0&&<div className="mt-6"><h3 className="font-black text-gray-800 mb-2 text-sm">ACTIVE GAMES</h3>{actG.map((g)=>(
           <div key={g.id} className="mb-2 bg-green-50 border-2 border-green-400 rounded-lg p-3">
-            <div className="font-black text-green-800">{g.date} vs {g.opponent}</div>
-            <div className="text-sm text-green-600 font-bold">{g.location}</div>
+            <div className="font-black text-green-800">{g.date} vs {g.opponent}</div><div className="text-sm text-green-600 font-bold">{g.location}</div>
             {g.goalsFor!=null&&<div className="text-sm font-black text-gray-700 mt-1">Score: {g.goalsFor}-{g.goalsAgainst}</div>}
             <div className="flex gap-2 mt-2">
               <Btn onClick={()=>{const nm=formName||prompt("Enter your name:");if(!nm)return;setFormName(nm);joinGame(g,nm);}} cls="flex-1 py-1 bg-green-600 text-white rounded text-xs font-black border border-black">JOIN</Btn>
@@ -273,7 +437,7 @@ export default function App(){
         </div>}
       </div></div>
       {showAdminPrompt&&<AdminModal adminInput={adminInput} setAdminInput={setAdminInput} adminErr={adminErr} onUnlock={doAdminUnlock} onCancel={()=>{setShowAdminPrompt(false);setAdminErr("");}}/>}
-      {confirmDelete&&<ConfirmModal label={confirmDelete.label} onConfirm={doDelete} onCancel={()=>setConfirmDelete(null)}/>}
+      {confirmDelete&&<ConfirmModal label={confirmDelete.label} onConfirm={confirmDelete.onConfirm||doDelete} onCancel={()=>setConfirmDelete(null)}/>}
       </div>);
   }
 
@@ -307,71 +471,97 @@ export default function App(){
       <div className="space-y-4">
         <div><label className="block text-sm font-bold text-gray-700 mb-1">Your Name</label><input type="text" value={formName} onChange={(e)=>setFormName(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg" placeholder="Your name"/></div>
         <div><label className="block text-sm font-bold text-gray-700 mb-1">Opponent</label><input type="text" value={ngOpp} onChange={(e)=>setNgOpp(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg" placeholder="Opponent name"/></div>
-        <div><label className="block text-sm font-bold text-gray-700 mb-1">Date</label><div><input type="date" value={ngDate} onChange={(e)=>setNgDate(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg text-sm appearance-none" style={{WebkitAppearance:"none",MozAppearance:"none"}}/></div></div>
+        <div><label className="block text-sm font-bold text-gray-700 mb-1">Date</label><input type="date" value={ngDate} onChange={(e)=>setNgDate(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg text-sm appearance-none" style={{WebkitAppearance:"none",MozAppearance:"none"}}/></div>
         <div><label className="block text-sm font-bold text-gray-700 mb-1">Location</label><input type="text" value={ngLoc} onChange={(e)=>setNgLoc(e.target.value)} className="w-full px-4 py-2 border-2 border-black rounded-lg" placeholder="Field/venue"/></div>
-        <div><label className="block text-sm font-bold text-gray-700 mb-2">Format</label><div className="flex gap-4"><Btn onClick={()=>setNgPt("quarters")} cls={"flex-1 py-3 rounded-lg font-black border-2 border-black "+(ngPt==="quarters"?"bg-red-600 text-white":"bg-white text-gray-700")}>Quarters</Btn><Btn onClick={()=>setNgPt("halves")} cls={"flex-1 py-3 rounded-lg font-black border-2 border-black "+(ngPt==="halves"?"bg-red-600 text-white":"bg-white text-gray-700")}>Halves</Btn></div></div>
-        <Btn onClick={async()=>{if(!formName)return;const id=genId();const per=ngPt==="quarters"?["Q1","Q2","Q3","Q4"]:["1st Half","2nd Half"];const ar=activeRoster();const g={id,date:ngDate,opponent:ngOpp,location:ngLoc,periodType:ngPt,periods:per,status:"active",roster:[...ar],goalsFor:null,goalsAgainst:null};await saveGames([g,...games]);await sSet("game:"+id+":info",g);setCurGameId(id);setCurGame(g);setRecorderName(formName);const gl=ar.filter(p=>p.position==="Goalie");setActiveGoalie(gl.length?gl[0].name:"");setCurrentPeriod(per[0]);setStats([]);setGoalSeq(0);setGaSeq(0);setFaceoffPlayers({});setScreen("tracking");}} disabled={!ngOpp||!ngLoc||!formName} cls="w-full bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400 disabled:bg-gray-400 disabled:border-gray-400">CREATE GAME</Btn>
+        <Btn onClick={async()=>{if(!formName)return;const id=genId();const ar=activeRoster();const g={id,date:ngDate,opponent:ngOpp,location:ngLoc,status:"active",roster:[...ar],goalsFor:null,goalsAgainst:null};await saveGames([g,...games]);await sSet("game:"+id+":info",g);setCurGameId(id);setCurGame(g);setRecorderName(formName);const gl=ar.filter(p=>p.position==="Goalie");setActiveGoalie(gl.length?gl[0].name:"");setStats([]);setGoalSeq(0);setGaSeq(0);setFaceoffPlayers({});setScreen("tracking");}} disabled={!ngOpp||!ngLoc||!formName} cls="w-full bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400 disabled:bg-gray-400 disabled:border-gray-400">CREATE GAME</Btn>
       </div>
     </div></div></div>);
   }
 
   if(screen==="tracking"){
-    const gr=gameRoster(curGame);const goalies=gr.filter((p)=>p.position==="Goalie");const pIdx=curGame.periods.indexOf(currentPeriod);
-    const addStat=(s)=>setStats((prev)=>[...prev,{...s,recorder:recorderName,period:currentPeriod,timestamp:Date.now()}]);
+    const gr=gameRoster(curGame);
+    const goalies=gr.filter((p)=>p.position==="Goalie");
+    const activeGoaliePlayer=goalies.find(g=>g.name===activeGoalie);
+
+    const addStat=(s)=>setStats((prev)=>[...prev,{...s,recorder:recorderName,timestamp:Date.now()}]);
     const rec=(st)=>{if(["Shot","Faceoffs","Groundballs","CTO","Penalties"].includes(st))setShowPlayerSelect(st);else if(st==="Opponent Shot")setPendingStat({type:"Opponent Shot"});};
-    const hPS=(p)=>{
-      if(showPlayerSelect==="Shot"){setPendingStat({type:"Shot",player:p});}
-      else if(showPlayerSelect==="Penalties"){setPendingStat({type:"Penalties",player:p});}
-      else if(showPlayerSelect==="Faceoffs"){setPendingStat({type:"Faceoffs",player:p});}
-      else if(showPlayerSelect==="CTO"){setPendingStat({type:"CTO",player:p});}
-      else if(showPlayerSelect==="Groundballs"){addStat({type:"Groundballs",player:p.name,number:p.number});}
-      setShowPlayerSelect(null);
-    };
-    const hAS=(ap)=>{const ns=[{recorder:recorderName,type:"Goals",player:pendingGoal.player.name,number:pendingGoal.player.number,period:currentPeriod,sequence:pendingGoal.sequence,timestamp:Date.now()}];if(ap)ns.push({recorder:recorderName,type:"Assists",player:ap.name,number:ap.number,period:currentPeriod,goalSequence:pendingGoal.sequence,timestamp:Date.now()});setStats((prev)=>[...prev,...ns]);setGoalSeq(pendingGoal.sequence);setPendingGoal(null);};
-    const hSR=(r)=>{if(r==="Score"){setPendingGoal({player:pendingStat.player,sequence:goalSeq+1});}else{addStat({type:r==="On Goal"?"Shot on Goal":"Shot Missed",player:pendingStat.player.name,number:pendingStat.player.number});}setPendingStat(null);};
-    const hOR=(r)=>{if(r==="Goal"){addStat({type:"Goal Against",sequence:gaSeq+1,goalie:activeGoalie});setGaSeq((p)=>p+1);}else{addStat({type:r==="Save"?"Save":"Opponent Shot Miss",goalie:activeGoalie});}setPendingStat(null);};
+    const hPS=(p)=>{if(showPlayerSelect==="Shot")setPendingStat({type:"Shot",player:p});else if(showPlayerSelect==="Penalties")setPendingStat({type:"Penalties",player:p});else if(showPlayerSelect==="Faceoffs")setPendingStat({type:"Faceoffs",player:p});else if(showPlayerSelect==="CTO")setPendingStat({type:"CTO",player:p});else if(showPlayerSelect==="Groundballs")addStat({type:"Groundballs",player:p.name,number:p.number});setShowPlayerSelect(null);};
+    const hAS=(ap)=>{const ns=[{recorder:recorderName,type:"Goals",player:pendingGoal.player.name,number:pendingGoal.player.number,timestamp:Date.now()}];if(ap)ns.push({recorder:recorderName,type:"Assists",player:ap.name,number:ap.number,timestamp:Date.now()});setStats((prev)=>[...prev,...ns]);setGoalSeq(prev=>prev+1);setPendingGoal(null);};
+    const hSR=(r)=>{if(r==="Score")setPendingGoal({player:pendingStat.player});else addStat({type:r==="On Goal"?"Shot on Goal":"Shot Missed",player:pendingStat.player.name,number:pendingStat.player.number});setPendingStat(null);};
+    const hOR=(r)=>{if(r==="Goal"){addStat({type:"Goal Against",goalie:activeGoalie});setGaSeq((p)=>p+1);}else addStat({type:r==="Save"?"Save":"Opponent Shot Miss",goalie:activeGoalie});setPendingStat(null);};
     const hPT=(pt)=>{addStat({type:"Penalty",penaltyType:pt,player:pendingStat.player.name,number:pendingStat.player.number});setPendingStat(null);};
-    const hFO=(r)=>{addStat({type:r==="Won"?"Faceoffs Won":"Faceoffs Lost",player:pendingStat.player.name,number:pendingStat.player.number});setFaceoffPlayers((prev)=>({...prev,[pendingStat.player.id]:true}));if(r==="Won"){setPendingStat({type:"FO-GB"});}else{setPendingStat(null);}};
-    const hCTO=(choice)=>{addStat({type:"Turnovers Caused",player:pendingStat.player.name,number:pendingStat.player.number});if(choice==="Groundball"){setPendingStat({type:"CTO-GB"});}else{setPendingStat(null);}};
+    const hFO=(r)=>{addStat({type:r==="Won"?"Faceoffs Won":"Faceoffs Lost",player:pendingStat.player.name,number:pendingStat.player.number});setFaceoffPlayers((prev)=>({...prev,[pendingStat.player.id]:true}));if(r==="Won")setPendingStat({type:"FO-GB"});else setPendingStat(null);};
+    const hCTO=(choice)=>{addStat({type:"Turnovers Caused",player:pendingStat.player.name,number:pendingStat.player.number});if(choice==="Groundball")setPendingStat({type:"CTO-GB"});else setPendingStat(null);};
     const hGBSelect=(p)=>{if(p)addStat({type:"Groundballs",player:p.name,number:p.number});setPendingStat(null);};
-    const undo=()=>{if(!stats.length)return;const l=stats[stats.length-1];if(l.type==="Goals")setGoalSeq((p)=>p-1);else if(l.type==="Goal Against")setGaSeq((p)=>p-1);setStats((p)=>p.slice(0,-1));};
+    const undo=()=>{if(!stats.length)return;const l=stats[stats.length-1];if(l.type==="Goals")setGoalSeq((p)=>Math.max(0,p-1));else if(l.type==="Goal Against")setGaSeq((p)=>Math.max(0,p-1));setStats((p)=>p.slice(0,-1));};
+
     return(
       <div className="min-h-screen bg-gradient-to-br from-red-600 via-red-500 to-yellow-500 p-4 pb-20"><div className="max-w-2xl mx-auto">
+        {/* Header */}
         <div className="bg-white rounded-lg shadow-2xl p-4 mb-4 border-4 border-black">
-          <div className="text-center mb-3"><LogoImg size="sm"/><h2 className="text-lg font-black">{curGame.date} vs {curGame.opponent}</h2><p className="text-xs font-bold text-gray-600">{curGame.location} - Rec: <span className="text-red-600">{recorderName}</span></p></div>
-          <div className="flex items-center justify-center gap-2 mb-3">
-            <Btn onClick={()=>{if(pIdx>0)setCurrentPeriod(curGame.periods[pIdx-1]);}} disabled={pIdx===0} cls="px-3 py-1 bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 rounded font-black border-2 border-black">←</Btn>
-            <div className="px-6 py-2 bg-red-600 text-white font-black rounded-lg text-lg border-2 border-black">{currentPeriod}</div>
-            <Btn onClick={()=>{if(pIdx<curGame.periods.length-1)setCurrentPeriod(curGame.periods[pIdx+1]);}} disabled={pIdx===curGame.periods.length-1} cls="px-3 py-1 bg-gray-200 disabled:bg-gray-100 disabled:text-gray-400 rounded font-black border-2 border-black">→</Btn>
+          <div className="text-center mb-3"><LogoImg size="sm"/><h2 className="text-lg font-black">{curGame.date} vs {curGame.opponent}</h2><p className="text-xs font-bold text-gray-600">{curGame.location} · Rec: <span className="text-red-600">{recorderName}</span></p></div>
+          {/* Goalie selector — prominent */}
+          <div className="mt-2">
+            <p className="text-xs font-black text-gray-500 text-center mb-2 uppercase tracking-wide">Active Goalie</p>
+            <div className="flex justify-center gap-2 flex-wrap">
+              {goalies.map((g)=>(
+                <button key={g.id} onClick={()=>setActiveGoalie(g.name)} className={"flex items-center gap-2 px-4 py-2 rounded-lg font-black border-2 border-black transition-all "+(activeGoalie===g.name?"bg-yellow-400 text-black scale-105":"bg-white text-gray-700")}>
+                  <div className={"w-8 h-8 rounded-full flex items-center justify-center font-black text-sm "+(activeGoalie===g.name?"bg-black text-yellow-400":"bg-gray-200 text-gray-700")}>{g.number}</div>
+                  <span>{g.name}</span>
+                  {activeGoalie===g.name&&<span className="text-lg">🧤</span>}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="flex justify-center gap-2">{goalies.map((g)=><Btn key={g.id} onClick={()=>setActiveGoalie(g.name)} cls={"px-4 py-2 rounded-lg font-black border-2 border-black "+(activeGoalie===g.name?"bg-yellow-400 text-black":"bg-white text-gray-700")}>{g.name} #{g.number}</Btn>)}</div>
         </div>
-        <div className="bg-white rounded-lg shadow-2xl p-4 mb-4 border-4 border-black"><div className="grid grid-cols-2 gap-4 text-center"><div><div className="text-5xl font-black text-red-600">{goalSeq}</div><div className="text-sm font-bold text-gray-600 mt-1">Goals For</div></div><div><div className="text-5xl font-black text-gray-700">{gaSeq}</div><div className="text-sm font-bold text-gray-600 mt-1">Goals Against</div></div></div></div>
+
+        {/* Scoreboard */}
+        <div className="bg-white rounded-lg shadow-2xl p-4 mb-4 border-4 border-black">
+          <div className="grid grid-cols-2 gap-4 text-center">
+            <div><div className="text-5xl font-black text-red-600">{goalSeq}</div><div className="text-sm font-bold text-gray-600 mt-1">Goals For</div></div>
+            <div><div className="text-5xl font-black text-gray-700">{gaSeq}</div><div className="text-sm font-bold text-gray-600 mt-1">Goals Against</div></div>
+          </div>
+        </div>
+
+        {/* Stat buttons */}
         <div className="bg-white rounded-lg shadow-2xl p-4 border-4 border-black mb-4">
           <div className="flex justify-between items-center mb-3"><h3 className="font-black text-gray-800">RECORD STATS</h3>{stats.length>0&&<Btn onClick={undo} cls="flex items-center gap-1 px-3 py-1 bg-gray-600 text-white rounded-lg font-bold text-sm border-2 border-black"><Undo2 className="w-4 h-4"/>UNDO</Btn>}</div>
           <div className="grid grid-cols-2 gap-3">
             <Btn onClick={()=>rec("Shot")} cls="py-4 bg-green-600 text-white rounded-lg font-black border-2 border-black col-span-2">SHOT</Btn>
-            <Btn onClick={()=>rec("Opponent Shot")} cls="py-3 bg-red-600 text-white rounded-lg font-black border-2 border-black">OPPONENT SHOT</Btn>
-            <Btn onClick={()=>rec("Penalties")} cls="py-3 bg-red-600 text-white rounded-lg font-black border-2 border-black">PENALTY</Btn>
+            {/* Opponent Shot button shows active goalie name */}
+            <Btn onClick={()=>rec("Opponent Shot")} cls="py-3 bg-red-600 text-white rounded-lg font-black border-2 border-black col-span-2">
+              <div className="text-base font-black">OPPONENT SHOT</div>
+              <div className="text-xs font-bold text-red-200 mt-0.5">🧤 {activeGoalie||"No goalie set"} {activeGoaliePlayer?"#"+activeGoaliePlayer.number:""}</div>
+            </Btn>
+            <Btn onClick={()=>rec("Penalties")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">PENALTY</Btn>
             <Btn onClick={()=>rec("Faceoffs")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">FACEOFF</Btn>
             <Btn onClick={()=>rec("Groundballs")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">GROUNDBALL</Btn>
-            <Btn onClick={()=>rec("CTO")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black col-span-2">CAUSED TURNOVER (CTO)</Btn>
+            <Btn onClick={()=>rec("CTO")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">CAUSED TO</Btn>
           </div>
         </div>
+
+        {/* Recent stats */}
         <div className="bg-white rounded-lg shadow-2xl p-4 border-4 border-black">
           <h3 className="font-black text-gray-800 mb-2">RECENT (Last 10)</h3>
           <div className="space-y-1 max-h-48 overflow-y-auto">
-            {stats.slice(-10).reverse().map((s,i)=><div key={i} className="text-sm py-2 px-3 bg-gray-50 rounded border-2 border-gray-200"><span className="font-black">{s.type}</span>{s.player&&" - "+s.player+" #"+s.number}{s.goalie&&s.type==="Save"&&" - "+s.goalie}{s.penaltyType&&" - "+s.penaltyType}{s.sequence&&" ("+(s.type==="Goals"?"Goal":"GA")+" #"+s.sequence+")"}<span className="text-gray-500 text-xs ml-2 font-bold">{s.period}</span></div>)}
+            {stats.slice(-10).reverse().map((s,i)=>(
+              <div key={i} className="text-sm py-2 px-3 bg-gray-50 rounded border-2 border-gray-200 flex justify-between items-center">
+                <div><span className="font-black">{s.type}</span>{s.player&&<span className="font-bold"> · {s.player} <span className="text-gray-500">#{s.number}</span></span>}{(s.type==="Save"||s.type==="Goal Against")&&s.goalie&&<span className="font-bold"> · 🧤{s.goalie}</span>}{s.penaltyType&&<span className="text-orange-700 font-bold"> · {s.penaltyType}</span>}</div>
+                <span className="text-gray-400 text-xs font-bold ml-2 flex-shrink-0">{fmtTime(s.timestamp)}</span>
+              </div>
+            ))}
             {stats.length===0&&<p className="text-gray-500 text-center py-4 font-bold">No stats recorded yet</p>}
           </div>
           <div className="mt-2 text-xs text-gray-500 font-bold text-center">{stats.length} stats recorded</div>
         </div>
-        <Btn onClick={async()=>{setBusy(true);await saveMyStats();const res=await loadGameMerge(curGameId,gr);setMergedData(res.merge);setRecorderList(res.recorders);if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);const ng=games.map((g)=>g.id===curGameId?{...g,goalsFor:res.merge.totalGoals,goalsAgainst:res.merge.totalGA}:g);await saveGames(ng);setCurGame(ng.find((g)=>g.id===curGameId));}setBusy(false);setScreen("review");}} cls="w-full mt-4 bg-black text-yellow-400 py-4 rounded-lg font-black text-lg border-2 border-yellow-400">{busy?"SAVING...":"SUBMIT STATS"}</Btn>
+
+        <Btn onClick={async()=>{setBusy(true);await saveMyStats();const gr2=gameRoster(curGame);const res=await loadGameMerge(curGameId,gr2);setMergedData(res.merge);setRecorderList(res.recorders);if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);const ng=games.map((g)=>g.id===curGameId?{...g,goalsFor:res.merge.totalGoals,goalsAgainst:res.merge.totalGA}:g);await saveGames(ng);setCurGame(ng.find((g)=>g.id===curGameId));}setBusy(false);setScreen("review");}} cls="w-full mt-4 bg-black text-yellow-400 py-4 rounded-lg font-black text-lg border-2 border-yellow-400">{busy?"SAVING...":"SUBMIT STATS"}</Btn>
       </div>
+
       {showPlayerSelect&&!pendingGoal&&!pendingStat&&<PlayerSelectModal title="SELECT PLAYER" subtitle={showPlayerSelect} roster={gr} onSelect={hPS} onCancel={()=>setShowPlayerSelect(null)} highlighted={faceoffPlayers}/>}
       {pendingGoal&&!showPlayerSelect&&!pendingStat&&<AssistSelectModal goalPlayer={pendingGoal.player} roster={gr} onSelect={hAS} highlighted={faceoffPlayers}/>}
       {pendingStat?.type==="Shot"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="SHOT RESULT" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"SCORE",cls:"bg-green-500 text-white",action:()=>hSR("Score")},{label:"ON GOAL",cls:"bg-yellow-500 text-black",action:()=>hSR("On Goal")},{label:"MISS",cls:"bg-red-500 text-white",action:()=>hSR("Miss")}]} onCancel={()=>setPendingStat(null)}/>}
-      {pendingStat?.type==="Opponent Shot"&&!showPlayerSelect&&<ModalChoice title="OPPONENT SHOT" subtitle={"Goalie: "+activeGoalie} choices={[{label:"SAVE",cls:"bg-green-500 text-white",action:()=>hOR("Save")},{label:"MISS",cls:"bg-yellow-500 text-black",action:()=>hOR("Miss")},{label:"GOAL",cls:"bg-red-500 text-white",action:()=>hOR("Goal")}]} onCancel={()=>setPendingStat(null)}/>}
+      {pendingStat?.type==="Opponent Shot"&&!showPlayerSelect&&<OpponentShotModal activeGoalie={activeGoalie} goalieNumber={activeGoaliePlayer?.number} onResult={hOR} onCancel={()=>setPendingStat(null)}/>}
       {pendingStat?.type==="Penalties"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="PENALTY" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"TECHNICAL (30s)",cls:"bg-yellow-500 text-black",action:()=>hPT("Technical Foul (30s)")},{label:"PERSONAL (60s)",cls:"bg-orange-500 text-white",action:()=>hPT("Personal Foul (60s)")},{label:"FLAGRANT (2-3min)",cls:"bg-red-500 text-white",action:()=>hPT("Flagrant Foul (2-3min)")}]} onCancel={()=>setPendingStat(null)}/>}
       {pendingStat?.type==="Faceoffs"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="FACEOFF" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"WON",cls:"bg-green-500 text-white",action:()=>hFO("Won")},{label:"LOST",cls:"bg-red-500 text-white",action:()=>hFO("Lost")}]} onCancel={()=>setPendingStat(null)}/>}
       {pendingStat?.type==="CTO"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="CAUSED TURNOVER" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"INTERCEPTION",cls:"bg-blue-600 text-white",action:()=>hCTO("Interception")},{label:"GROUNDBALL",cls:"bg-black text-white",action:()=>hCTO("Groundball")}]} onCancel={()=>setPendingStat(null)}/>}
@@ -381,28 +571,112 @@ export default function App(){
   }
 
   if(screen==="review"){
-    const gr=gameRoster(curGame);let ps,tG,tGA;
+    const gr=gameRoster(curGame);
+    let ps,tG,tGA;
     if(mergedData){ps=mergedData.playerStats;tG=mergedData.totalGoals;tGA=mergedData.totalGA;}
     else{const m=mergeAllStats({local:{stats,goalSeq,gaSeq}},gr);ps=m.playerStats;tG=m.totalGoals;tGA=m.totalGA;}
+    const displayPs=applyOverrides(ps,overrides);
+    const hasOverrides=Object.keys(overrides).length>0;
     const canReturn=curGame?.status==="active";
+
+    const statTypeStyle=(t)=>{
+      if(t==="Goals")return"bg-green-100 text-green-800 border border-green-300";
+      if(t==="Goal Against")return"bg-red-100 text-red-800 border border-red-300";
+      if(t==="Save")return"bg-blue-100 text-blue-800 border border-blue-300";
+      if(t==="Assists")return"bg-yellow-100 text-yellow-800 border border-yellow-300";
+      if(t==="Shot on Goal")return"bg-purple-100 text-purple-800 border border-purple-300";
+      if(t==="Faceoffs Won")return"bg-emerald-100 text-emerald-800 border border-emerald-300";
+      if(t==="Faceoffs Lost")return"bg-orange-100 text-orange-800 border border-orange-300";
+      return"bg-gray-100 text-gray-700 border border-gray-200";
+    };
+
     return(
       <div className="min-h-screen bg-gradient-to-br from-red-600 via-red-500 to-yellow-500 p-4"><div className="max-w-6xl mx-auto"><div className="bg-white rounded-lg shadow-2xl p-6 border-4 border-black">
         <div className="text-center mb-4"><LogoImg size="md"/><h2 className="text-2xl font-black text-black mt-2">GAME SUMMARY</h2></div>
-        <div className="mb-4 text-center"><p className="font-bold text-gray-700"><span className="font-black">Opponent:</span> {curGame?.opponent}</p><p className="font-bold text-gray-700">{curGame?.date} - {curGame?.location}</p><p className="text-3xl font-black mt-2"><span className="text-red-600">{tG}</span> - <span className="text-gray-700">{tGA}</span></p></div>
+        <div className="mb-4 text-center">
+          <p className="font-bold text-gray-700"><span className="font-black">Opponent:</span> {curGame?.opponent}</p>
+          <p className="font-bold text-gray-700">{curGame?.date} · {curGame?.location}</p>
+          <p className="text-3xl font-black mt-2"><span className="text-red-600">{tG}</span> - <span className="text-gray-700">{tGA}</span></p>
+          {hasOverrides&&<span className="text-xs font-black text-orange-600 bg-orange-50 border border-orange-300 px-2 py-0.5 rounded ml-2">OVERRIDES ACTIVE</span>}
+        </div>
         {recorderList.length>0&&<div className="mb-3 bg-blue-50 p-2 rounded-lg border-2 border-blue-200 text-center"><span className="text-sm font-black text-blue-800">{recorderList.length} recorder{recorderList.length>1?"s":""}: </span><span className="text-sm font-bold text-blue-700">{recorderList.join(", ")}</span></div>}
-        <StatsTable playerStats={ps}/>
-        <div className="mt-4 text-xs text-gray-600"><p className="font-bold">G=Goals, A=Assists, Shots=Total, SOG=On Goal (incl goals), Shot%=G/Shots, GB=Groundballs, CTO=Caused TO, FO/FOW=Faceoffs, SAV=Saves, GA=Goals Against, SV%=SAV/(SAV+GA), PEN=Penalties</p></div>
-        <CopyBtn label="COPY TABLE" doneLabel="✓ COPIED!" cls="mt-4"/>
-        <Btn onClick={async()=>{setBusy(true);const res=await loadGameMerge(curGameId,gr);if(res.merge)setMergedData(res.merge);setRecorderList(res.recorders);setBusy(false);}} cls="w-full mt-2 py-2 bg-blue-600 text-white rounded-lg font-black border-2 border-black">{busy?"REFRESHING...":"REFRESH DATA"}</Btn>
-        {canReturn&&<Btn onClick={()=>{setScreen("tracking");}} cls="w-full mt-2 py-3 bg-green-600 text-white rounded-lg font-black border-2 border-black">RETURN TO GAME</Btn>}
-        <Btn onClick={()=>{setScreen("home");setMergedData(null);setRecorderList([]);}} cls="w-full mt-2 bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400">BACK TO HOME</Btn>
-      </div></div></div>);
+
+        <div className="flex gap-1 mb-4 flex-wrap">
+          <button onClick={()=>setReviewTab("merged")} className={"flex-1 py-2 rounded-lg font-black text-xs border-2 border-black "+(reviewTab==="merged"?"bg-black text-yellow-400":"bg-white text-gray-700")}>MERGED STATS</button>
+          {isAdmin&&<button onClick={async()=>{setReviewTab("byrecorder");if(Object.keys(allRecStats).length===0)await loadAllRecStats(curGameId);}} className={"flex-1 py-2 rounded-lg font-black text-xs border-2 border-black "+(reviewTab==="byrecorder"?"bg-gray-800 text-yellow-400":"bg-white text-gray-700")}>BY RECORDER ✏️</button>}
+          {isAdmin&&<button onClick={()=>setReviewTab("editfinal")} className={"flex-1 py-2 rounded-lg font-black text-xs border-2 border-black "+(reviewTab==="editfinal"?"bg-gray-800 text-yellow-400":"bg-white text-gray-700")}>EDIT FINAL{hasOverrides?" ⚠️":""}</button>}
+        </div>
+
+        {reviewTab==="merged"&&<div>
+          <StatsTable playerStats={displayPs}/>
+          <div className="mt-4 text-xs text-gray-600"><p className="font-bold">G=Goals, A=Assists, Shots=Total, SOG=On Goal (incl goals), Shot%=G/Shots, GB=Groundballs, CTO=Caused TO, FO/FOW=Faceoffs, SAV=Saves, GA=Goals Against, SA=Total Shots Against, SV%=SAV/(SAV+GA), PEN=Penalties</p></div>
+          <CopyBtn label="COPY TABLE" doneLabel="✓ COPIED!" cls="mt-4"/>
+          <Btn onClick={async()=>{setBusy(true);const res=await loadGameMerge(curGameId,gr);if(res.merge)setMergedData(res.merge);setRecorderList(res.recorders);setBusy(false);}} cls="w-full mt-2 py-2 bg-blue-600 text-white rounded-lg font-black border-2 border-black">{busy?"REFRESHING...":"REFRESH DATA"}</Btn>
+        </div>}
+
+        {reviewTab==="byrecorder"&&isAdmin&&<div>
+          {recStatsLoading&&<div className="text-center py-8 text-gray-500 font-black">Loading...</div>}
+          {!recStatsLoading&&Object.keys(allRecStats).filter(k=>!allRecStats[k].deleted).length===0&&<div className="text-center py-8"><p className="text-gray-500 font-bold mb-4">No data loaded.</p><button onClick={()=>loadAllRecStats(curGameId)} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-black border-2 border-black active:scale-95">LOAD</button></div>}
+          {!recStatsLoading&&Object.keys(allRecStats).length>0&&<div className="space-y-3">
+            <p className="text-xs text-gray-500 font-bold text-center">Timestamps shown per stat. Tap EDIT to fix player or goalie. DELETE SHEET removes all stats from that recorder.</p>
+            {Object.entries(allRecStats).sort(([a],[b])=>a.localeCompare(b)).map(([nm,data])=>{
+              if(data.deleted)return null;
+              const isExp=expandedRec===nm;const statList=data.stats||[];
+              const gCount=statList.filter(s=>s.type==="Goals").length;const gaCount=statList.filter(s=>s.type==="Goal Against").length;
+              return<div key={nm} className="border-2 border-gray-300 rounded-lg overflow-hidden">
+                <button onClick={()=>setExpandedRec(isExp?null:nm)} className={"w-full p-3 flex justify-between items-center font-black text-left "+(isExp?"bg-gray-800 text-white":"bg-gray-100 text-gray-800 hover:bg-gray-200")}>
+                  <span className="text-base">{nm}</span>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className={"font-bold "+(isExp?"text-green-300":"text-green-700")}>{gCount}G</span>
+                    <span className={"font-bold "+(isExp?"text-red-300":"text-red-600")}>{gaCount}GA</span>
+                    <span className={"font-bold "+(isExp?"text-gray-300":"text-gray-500")}>{statList.length} stats</span>
+                    <span>{isExp?"▲":"▼"}</span>
+                  </div>
+                </button>
+                {isExp&&<div className="p-3 bg-white">
+                  <div className="space-y-1 max-h-80 overflow-y-auto">
+                    {statList.map((s,i)=>{
+                      const isGoalie=["Save","Goal Against","Opponent Shot Miss"].includes(s.type);
+                      return<div key={i} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded border border-gray-200 gap-2">
+                        <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+                          <span className={"text-xs font-black px-2 py-0.5 rounded "+statTypeStyle(s.type)}>{s.type}</span>
+                          {s.player&&<span className="text-sm font-bold text-gray-800">{s.player} <span className="text-gray-500">#{s.number}</span></span>}
+                          {isGoalie&&s.goalie&&<span className="text-sm font-bold text-gray-700">🧤{s.goalie}</span>}
+                          {s.penaltyType&&<span className="text-xs text-orange-700 font-bold">{s.penaltyType}</span>}
+                          {s.timestamp&&<span className="text-xs text-gray-400 font-bold">{fmtTime(s.timestamp)}</span>}
+                        </div>
+                        <button onClick={()=>setEditStatEntry({recorder:nm,idx:i,stat:{...s}})} className="flex-shrink-0 px-2 py-1 bg-yellow-400 text-black rounded text-xs font-black border border-yellow-600 active:scale-95">EDIT</button>
+                      </div>;
+                    })}
+                  </div>
+                  <button onClick={()=>setConfirmDelete({type:"sheet",label:nm+"'s entire sheet",onConfirm:()=>{doDeleteRecorder(nm,gr);setConfirmDelete(null);}})} className="mt-3 w-full py-2 bg-red-100 text-red-800 border-2 border-red-400 rounded-lg font-black text-sm active:scale-95">🗑 DELETE {nm}'S ENTIRE SHEET</button>
+                </div>}
+              </div>;
+            })}
+          </div>}
+        </div>}
+
+        {reviewTab==="editfinal"&&isAdmin&&<EditFinalStats playerStats={displayPs} onSave={doSaveOverrides} onClearOverrides={doClearOverrides} hasOverrides={hasOverrides}/>}
+
+        {canReturn&&<Btn onClick={()=>setScreen("tracking")} cls="w-full mt-4 py-3 bg-green-600 text-white rounded-lg font-black border-2 border-black">RETURN TO GAME</Btn>}
+        <Btn onClick={()=>{setScreen("home");setMergedData(null);setRecorderList([]);setAllRecStats({});setExpandedRec(null);setOverrides({});}} cls="w-full mt-2 bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400">BACK TO HOME</Btn>
+      </div></div>
+      {editStatEntry&&<StatEditModal stat={editStatEntry.stat} roster={gr} onSave={(ns)=>doSaveStatEdit(ns,gr)} onDelete={()=>doDeleteStatEntry(gr)} onCancel={()=>setEditStatEntry(null)}/>}
+      {confirmDelete&&<ConfirmModal label={confirmDelete.label} onConfirm={confirmDelete.onConfirm||doDelete} onCancel={()=>setConfirmDelete(null)}/>}
+      </div>);
   }
 
   if(screen==="multigame"){
     const fG=games.filter((g)=>g.status==="final"&&g.goalsFor!=null).sort((a,b)=>b.date.localeCompare(a.date));
     const toggle=(id)=>setSelectedGames((p)=>p.includes(id)?p.filter((x)=>x!==id):[...p,id]);
-    const agg=async()=>{setBusy(true);const allPs={};for(const gId of selectedGames){const g=games.find((x)=>x.id===gId);const res=await loadGameMerge(gId,gameRoster(g));if(res.merge){Object.entries(res.merge.playerStats).forEach(([k,p])=>{if(!allPs[k])allPs[k]={...p};else Object.keys(p).forEach((f)=>{if(typeof p[f]==="number"&&f!=="number")allPs[k][f]+=p[f];});});}}setMultiData({playerStats:allPs,gameCount:selectedGames.length});setBusy(false);};
+    const agg=async()=>{
+      setBusy(true);const allPs={};
+      for(const gId of selectedGames){
+        const g=games.find((x)=>x.id===gId);const res=await loadGameMerge(gId,gameRoster(g));
+        if(res.merge){const ovr=await sGet("game:"+gId+":overrides")||{};const final=applyOverrides(res.merge.playerStats,ovr);Object.entries(final).forEach(([k,p])=>{if(!allPs[k])allPs[k]={...p};else Object.keys(p).forEach((f)=>{if(typeof p[f]==="number"&&f!=="number")allPs[k][f]+=p[f];});});}
+      }
+      setMultiData({playerStats:allPs,gameCount:selectedGames.length});setBusy(false);
+    };
     return(
       <div className="min-h-screen bg-gradient-to-br from-red-600 via-red-500 to-yellow-500 p-4"><div className="max-w-6xl mx-auto"><div className="bg-white rounded-lg shadow-2xl p-6 mt-4 border-4 border-black">
         <Btn onClick={()=>{setScreen("home");setMultiData(null);}} cls="text-gray-500 font-black mb-4">← BACK</Btn>
@@ -416,9 +690,9 @@ export default function App(){
           <Btn onClick={agg} disabled={selectedGames.length<1||busy} cls="w-full bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400 disabled:bg-gray-400 disabled:border-gray-400">{busy?"CALCULATING...":"VIEW STATS ("+selectedGames.length+" GAME"+(selectedGames.length!==1?"S":"")+")"}</Btn>
         </div>}
         {multiData&&<div>
-          <div className="mb-4 text-center"><LogoImg size="md"/><div className="mt-2 text-lg font-black text-gray-800">COMBINED - {multiData.gameCount} GAME{multiData.gameCount!==1?"S":""}</div></div>
+          <div className="mb-4 text-center"><LogoImg size="md"/><div className="mt-2 text-lg font-black text-gray-800">COMBINED — {multiData.gameCount} GAME{multiData.gameCount!==1?"S":""}</div></div>
           <StatsTable playerStats={multiData.playerStats}/>
-          <div className="mt-4 text-xs text-gray-600"><p className="font-bold">Stats summed across selected games. Percentages from combined totals.</p></div>
+          <div className="mt-4 text-xs text-gray-600"><p className="font-bold">Stats summed across selected games. Per-game overrides included. Percentages from combined totals.</p></div>
           <CopyBtn label="COPY TABLE" doneLabel="✓ COPIED!" cls="mt-4"/>
           <Btn onClick={()=>setMultiData(null)} cls="w-full mt-2 py-2 bg-gray-600 text-white rounded-lg font-black border-2 border-black">BACK TO SELECTION</Btn>
           <Btn onClick={()=>{setScreen("home");setMultiData(null);}} cls="w-full mt-2 bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400">BACK TO HOME</Btn>
