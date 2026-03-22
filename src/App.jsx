@@ -795,6 +795,10 @@ export default function App(){
     else{const m=mergeAllStats({local:{stats,goalSeq,gaSeq}},gr);ps=m.playerStats;tG=m.totalGoals;tGA=m.totalGA;}
     const displayPs=applyOverrides(ps,overrides);
     const hasOverrides=Object.keys(overrides).length>0;
+    if(hasOverrides){
+      tG=Object.values(displayPs).reduce((s,p)=>s+(p.goals||0),0);
+      tGA=Object.values(displayPs).reduce((s,p)=>s+(p.goalsAgainst||0),0);
+    }
     const canReturn=curGame?.status==="active";
 
     const statTypeStyle=(t)=>{
@@ -941,5 +945,3 @@ export default function App(){
   }
   return null;
 }
-
-
