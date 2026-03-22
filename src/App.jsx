@@ -405,31 +405,99 @@ const ALL_EDIT_FIELDS=[
 
 function EditFinalStats({playerStats,onSave,onClearOverrides,hasOverrides}){
   const[local,setLocal]=useState(()=>{const o={};Object.entries(playerStats).forEach(([k,p])=>{o[k]={...p};});return o;});
-  const[expandedKey,setExpandedKey]=useState(null);
   const[saved,setSaved]=useState(false);
   const sorted=sortForStats(Object.values(local));
-  const setField=(pk,field,val)=>setLocal(prev=>({...prev,[pk]:{...prev[pk],[field]:parseInt(val)||0}}));
+  const setField=(pk,field,val)=>setLocal(prev=>({...prev,[pk]:{...prev[pk],[field]:Math.max(0,parseInt(val)||0)}}));
   const handleSave=async()=>{await onSave(local);setSaved(true);setTimeout(()=>setSaved(false),2000);};
+
+  const shots=(p)=>(p.goals||0)+(p.shotsOnGoal||0)+(p.shotsMissed||0);
+  const sog=(p)=>(p.goals||0)+(p.shotsOnGoal||0);
+  const totals=EDITABLE_COLS.reduce((acc,{key})=>{acc[key]=sorted.reduce((s,p)=>s+(local[p.name+"-"+p.number]?.[key]||0),0);return acc;},{});
+  const totalShots=totals.goals+(totals.shotsOnGoal||0)+(totals.shotsMissed||0);
+  const totalSOG=totals.goals+(totals.shotsOnGoal||0);
+  const inp="w-full text-center border border-gray-400 rounded font-black text-xs py-1 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500";
+  const C="text-center border border-gray-300 text-xs";
+  const CB="text-center border-2 border-black text-xs font-black";
+
   return(
     <div>
-      <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-3 mb-4 text-sm"><p className="font-black text-yellow-800">⚠️ DIRECT EDIT MODE</p><p className="text-yellow-700 font-bold mt-1">Changes override merged data. Raw recorder sheets are preserved.</p></div>
-      {hasOverrides&&<button onClick={onClearOverrides} className="w-full mb-3 py-2 bg-orange-100 text-orange-800 border-2 border-orange-400 rounded-lg font-black text-sm active:scale-95">↺ CLEAR OVERRIDES — revert to merged data</button>}
-      <div className="space-y-2">
-        {sorted.map((p)=>{
-          const pk=p.name+"-"+p.number;const cur=local[pk]||p;const isExp=expandedKey===pk;
-          const shots=(cur.goals||0)+(cur.shotsOnGoal||0)+(cur.shotsMissed||0);
-          return<div key={pk} className="border-2 border-gray-300 rounded-lg overflow-hidden">
-            <button onClick={()=>setExpandedKey(isExp?null:pk)} className={"w-full p-3 flex justify-between items-center "+(isExp?"bg-gray-800 text-white":"bg-gray-100 text-gray-800 hover:bg-gray-200")}>
-              <span className="font-black text-sm">#{p.number} {p.name} <span className={isExp?"text-gray-400":"text-gray-500"}>{posAbbr(p.position)}</span></span>
-              <span className={"text-xs font-bold "+(isExp?"text-gray-300":"text-gray-500")}>{cur.goals||0}G {cur.assists||0}A {shots}Sh {isExp?"▲":"▼"}</span>
-            </button>
-            {isExp&&<div className="p-3 bg-white"><div className="grid grid-cols-3 gap-2">{ALL_EDIT_FIELDS.map(({key,label})=>(
-              <div key={key} className="flex flex-col items-center"><label className="text-xs font-black text-gray-600 mb-1">{label}</label><input type="number" min="0" value={cur[key]||0} onChange={e=>setField(pk,key,e.target.value)} className="w-full text-center px-1 py-2 border-2 border-black rounded font-black text-base"/></div>
-            ))}</div></div>}
-          </div>;
-        })}
+      <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-3 mb-3 text-sm">
+        <p className="font-black text-yellow-800">⚠️ DIRECT EDIT MODE</p>
+        <p className="text-yellow-700 font-bold mt-1">Changes override merged data. Raw recorder sheets are preserved. Yellow columns auto-calculate.</p>
       </div>
-      <button onClick={handleSave} className={"w-full mt-4 py-3 rounded-lg font-black border-2 border-black active:scale-95 "+(saved?"bg-green-600 text-white border-green-700":"bg-black text-yellow-400 border-yellow-400")}>{saved?"✓ SAVED!":"SAVE FINAL STATS"}</button>
+      {hasOverrides&&<button onClick={onClearOverrides} className="w-full mb-3 py-2 bg-orange-100 text-orange-800 border-2 border-orange-400 rounded-lg font-black text-sm active:scale-95">↺ CLEAR OVERRIDES — revert to merged data</button>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-2 border-black">
+          <thead className="bg-red-600 text-white">
+            <tr>
+              <th className="p-1 text-left border border-red-400 font-black">#</th>
+              <th className="p-1 text-left border border-red-400 font-black">Player</th>
+              <th className="p-1 border border-red-400 font-black">G</th>
+              <th className="p-1 border border-red-400 font-black">A</th>
+              <th className="p-1 border border-red-400 font-black bg-red-700">Sh</th>
+              <th className="p-1 border border-red-400 font-black">SOG</th>
+              <th className="p-1 border border-red-400 font-black bg-red-700 text-yellow-300">Sh%</th>
+              <th className="p-1 border border-red-400 font-black">GB</th>
+              <th className="p-1 border border-red-400 font-black">CTO</th>
+              <th className="p-1 border border-red-400 font-black">FO</th>
+              <th className="p-1 border border-red-400 font-black">FOW</th>
+              <th className="p-1 border border-red-400 font-black bg-red-700 text-yellow-300">FO%</th>
+              <th className="p-1 border border-red-400 font-black">SAV</th>
+              <th className="p-1 border border-red-400 font-black">GA</th>
+              <th className="p-1 border border-red-400 font-black">SA</th>
+              <th className="p-1 border border-red-400 font-black bg-red-700 text-yellow-300">SV%</th>
+              <th className="p-1 border border-red-400 font-black">PEN</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((p,i)=>{
+              const pk=p.name+"-"+p.number;const cur=local[pk]||p;
+              const sh=shots(cur);
+              return(
+                <tr key={pk} className={i%2===0?"bg-gray-50":"bg-white"}>
+                  <td className="p-1 font-black border border-gray-300 text-xs">{p.number}</td>
+                  <td className="p-1 font-bold border border-gray-300 text-xs whitespace-nowrap">{p.name}</td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.goals||0} onChange={e=>setField(pk,"goals",e.target.value)} className={inp}/></td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.assists||0} onChange={e=>setField(pk,"assists",e.target.value)} className={inp}/></td>
+                  <td className={C+" bg-yellow-50 font-bold"}>{sh||"-"}</td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.shotsOnGoal||0} onChange={e=>setField(pk,"shotsOnGoal",e.target.value)} className={inp}/></td>
+                  <td className={C+" bg-yellow-50 font-bold"}>{pctFn(cur.goals||0,sh)}</td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.groundballs||0} onChange={e=>setField(pk,"groundballs",e.target.value)} className={inp}/></td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.cto||0} onChange={e=>setField(pk,"cto",e.target.value)} className={inp}/></td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.faceoffsTaken||0} onChange={e=>setField(pk,"faceoffsTaken",e.target.value)} className={inp}/></td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.faceoffsWon||0} onChange={e=>setField(pk,"faceoffsWon",e.target.value)} className={inp}/></td>
+                  <td className={C+" bg-yellow-50 font-bold"}>{pctFn(cur.faceoffsWon||0,cur.faceoffsTaken||0)}</td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.saves||0} onChange={e=>setField(pk,"saves",e.target.value)} className={inp}/></td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.goalsAgainst||0} onChange={e=>setField(pk,"goalsAgainst",e.target.value)} className={inp}/></td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.shotsAgainst||0} onChange={e=>setField(pk,"shotsAgainst",e.target.value)} className={inp}/></td>
+                  <td className={C+" bg-yellow-50 font-bold"}>{pctFn(cur.saves||0,(cur.saves||0)+(cur.goalsAgainst||0))}</td>
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.penalties||0} onChange={e=>setField(pk,"penalties",e.target.value)} className={inp}/></td>
+                </tr>
+              );
+            })}
+            <tr className="bg-red-600 text-white font-black text-xs">
+              <td className={CB} colSpan="2">TOTALS</td>
+              <td className={CB}>{totals.goals}</td>
+              <td className={CB}>{totals.assists}</td>
+              <td className={CB+" bg-red-700"}>{totalShots}</td>
+              <td className={CB}>{totalSOG}</td>
+              <td className={CB+" bg-red-700"}>{pctFn(totals.goals,totalShots)}</td>
+              <td className={CB}>{totals.groundballs}</td>
+              <td className={CB}>{totals.cto}</td>
+              <td className={CB}>{totals.faceoffsTaken}</td>
+              <td className={CB}>{totals.faceoffsWon}</td>
+              <td className={CB+" bg-red-700"}>{pctFn(totals.faceoffsWon,totals.faceoffsTaken)}</td>
+              <td className={CB}>{totals.saves}</td>
+              <td className={CB}>{totals.goalsAgainst}</td>
+              <td className={CB}>{totals.shotsAgainst}</td>
+              <td className={CB+" bg-red-700"}>{pctFn(totals.saves,totals.saves+totals.goalsAgainst)}</td>
+              <td className={CB}>{totals.penalties}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-gray-400 font-bold mt-1">Yellow columns auto-calculate. All other columns are editable.</p>
+      <button onClick={handleSave} className={"w-full mt-3 py-3 rounded-lg font-black border-2 border-black active:scale-95 "+(saved?"bg-green-600 text-white border-green-700":"bg-black text-yellow-400 border-yellow-400")}>{saved?"✓ SAVED!":"SAVE FINAL STATS"}</button>
     </div>
   );
 }
@@ -873,4 +941,5 @@ export default function App(){
   }
   return null;
 }
+
 
