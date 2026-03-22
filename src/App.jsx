@@ -752,13 +752,15 @@ export default function App(){
           <div className="grid grid-cols-2 gap-3">
             <Btn onClick={()=>rec("Shot")} cls="py-4 bg-green-600 text-white rounded-lg font-black border-2 border-black col-span-2">SHOT</Btn>
             <Btn onClick={()=>rec("Opponent Shot")} cls="py-3 bg-red-600 text-white rounded-lg font-black border-2 border-black col-span-2">
-              <div className="text-base font-black">OPPONENT SHOT</div>
-              <div className="text-xs font-bold text-red-200 mt-0.5">🧤 {activeGoalie||"No goalie set"} {activeGoaliePlayer?"#"+activeGoaliePlayer.number:""}</div>
+              <div className="flex items-center justify-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center font-black text-red-600 text-base flex-shrink-0">{activeGoaliePlayer?.number??"-"}</div>
+                <div className="text-left"><div className="text-base font-black leading-tight">OPPONENT SHOT</div><div className="text-xs font-bold text-red-200">({activeGoalie||"no goalie set"})</div></div>
+              </div>
             </Btn>
             <Btn onClick={()=>rec("Penalties")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">PENALTY</Btn>
             <Btn onClick={()=>rec("Faceoffs")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">FACEOFF</Btn>
             <Btn onClick={()=>rec("Groundballs")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">GROUNDBALL</Btn>
-            <Btn onClick={()=>rec("CTO")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">CAUSED TO</Btn>
+            <Btn onClick={()=>rec("CTO")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">CAUSED T/O</Btn>
           </div>
         </div>
         <div className="bg-white rounded-lg shadow-2xl p-4 border-4 border-black">
