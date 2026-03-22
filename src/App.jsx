@@ -47,39 +47,58 @@ function applyOverrides(playerStats, overrides) {
   return result;
 }
 
+// Compute per-recorder stats from raw events (used for recorder table view)
+function computeRecorderStats(recData, roster) {
+  const ps={};
+  roster.forEach(p=>{const k=p.name+"-"+p.number;ps[k]={name:p.name,number:p.number,position:p.position,goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,shotsAgainst:0,goalsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0};});
+  const stats=recData.stats||[];
+  stats.forEach(s=>{
+    if(s.type==="Goals"&&s.player){const k=s.player+"-"+s.number;if(ps[k])ps[k].goals++;}
+    if(s.type==="Assists"&&s.player){const k=s.player+"-"+s.number;if(ps[k])ps[k].assists++;}
+    if(s.type==="Shot on Goal"&&s.player){const k=s.player+"-"+s.number;if(ps[k])ps[k].shotsOnGoal++;}
+    if(s.type==="Shot Missed"&&s.player){const k=s.player+"-"+s.number;if(ps[k])ps[k].shotsMissed++;}
+    if(s.type==="Groundballs"&&s.player){const k=s.player+"-"+s.number;if(ps[k])ps[k].groundballs++;}
+    if(s.type==="Turnovers Caused"&&s.player){const k=s.player+"-"+s.number;if(ps[k])ps[k].cto++;}
+    if(s.type==="Penalty"&&s.player){const k=s.player+"-"+s.number;if(ps[k])ps[k].penalties++;}
+    if(s.type==="Faceoffs Won"&&s.player){const k=s.player+"-"+s.number;if(ps[k]){ps[k].faceoffsTaken++;ps[k].faceoffsWon++;}}
+    if(s.type==="Faceoffs Lost"&&s.player){const k=s.player+"-"+s.number;if(ps[k])ps[k].faceoffsTaken++;}
+    if((s.type==="Save"||s.type==="Goal Against"||s.type==="Opponent Shot Miss")&&s.goalie){
+      const gp=roster.find(x=>x.name===s.goalie);
+      if(gp){const k=gp.name+"-"+gp.number;if(ps[k]){if(s.type==="Save")ps[k].saves++;else if(s.type==="Goal Against"){ps[k].goalsAgainst++;ps[k].shotsAgainst++;}ps[k].shotsAgainst++;}}
+    }
+  });
+  // Fix shotsAgainst double-count: saves+GA+misses
+  roster.forEach(p=>{if(p.position==="Goalie"){const k=p.name+"-"+p.number;if(ps[k]){const sv=stats.filter(s=>s.type==="Save"&&s.goalie===p.name).length;const ga=stats.filter(s=>s.type==="Goal Against"&&s.goalie===p.name).length;const ms=stats.filter(s=>s.type==="Opponent Shot Miss"&&s.goalie===p.name).length;ps[k].saves=sv;ps[k].goalsAgainst=ga;ps[k].shotsAgainst=sv+ga+ms;}}});
+  // Apply tableOverrides if present
+  if(recData.tableOverrides){Object.entries(recData.tableOverrides).forEach(([k,v])=>{if(ps[k])ps[k]={...ps[k],...v};});}
+  return ps;
+}
+
 function mergeAllStats(rMap, roster) {
   const ps = {};
   roster.forEach((p) => {
     const k=p.name+"-"+p.number;
     if(!ps[k]) ps[k]={name:p.name,number:p.number,position:p.position,goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,shotsAgainst:0,goalsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0};
   });
-  const mxG={};
-  Object.values(rMap).forEach((d)=>{const ct={};(d.stats||[]).forEach((s)=>{if(s.type==="Goals"&&s.player){const k=s.player+"-"+s.number;ct[k]=(ct[k]||0)+1;}});Object.entries(ct).forEach(([k,v])=>{mxG[k]=Math.max(mxG[k]||0,v);});});
-  Object.entries(mxG).forEach(([k,v])=>{if(ps[k])ps[k].goals=v;});
-  const mxA={};
-  Object.values(rMap).forEach((d)=>{const ct={};(d.stats||[]).forEach((s)=>{if(s.type==="Assists"&&s.player){const k=s.player+"-"+s.number;ct[k]=(ct[k]||0)+1;}});Object.entries(ct).forEach(([k,v])=>{mxA[k]=Math.max(mxA[k]||0,v);});});
-  Object.entries(mxA).forEach(([k,v])=>{if(ps[k])ps[k].assists=v;});
-  const maxStats={"Shot on Goal":"shotsOnGoal","Shot Missed":"shotsMissed",Groundballs:"groundballs","Turnovers Caused":"cto",Penalty:"penalties"};
-  Object.entries(maxStats).forEach(([sT,f])=>{const mx={};Object.values(rMap).forEach((d)=>{const ct={};(d.stats||[]).forEach((s)=>{if(s.type===sT&&s.player){const k=s.player+"-"+s.number;ct[k]=(ct[k]||0)+1;}});Object.entries(ct).forEach(([k,v])=>{mx[k]=Math.max(mx[k]||0,v);});});Object.entries(mx).forEach(([k,v])=>{if(ps[k])ps[k][f]=v;});});
-  const mxFT={},mxFW={};
-  Object.values(rMap).forEach((d)=>{const t={},w={};(d.stats||[]).forEach((s)=>{if(s.type==="Faceoffs Won"||s.type==="Faceoffs Lost"){const k=s.player+"-"+s.number;t[k]=(t[k]||0)+1;if(s.type==="Faceoffs Won")w[k]=(w[k]||0)+1;}});Object.entries(t).forEach(([k,v])=>{mxFT[k]=Math.max(mxFT[k]||0,v);});Object.entries(w).forEach(([k,v])=>{mxFW[k]=Math.max(mxFW[k]||0,v);});});
-  Object.entries(mxFT).forEach(([k,v])=>{if(ps[k])ps[k].faceoffsTaken=v;});
-  Object.entries(mxFW).forEach(([k,v])=>{if(ps[k])ps[k].faceoffsWon=v;});
-  const mxSv={},mxGA={},mxSM={};
-  Object.values(rMap).forEach((d)=>{
-    const sv={},ga={},sm={};
-    (d.stats||[]).forEach((s)=>{
-      if((s.type==="Save"||s.type==="Goal Against"||s.type==="Opponent Shot Miss")&&s.goalie){
-        const gp=roster.find((x)=>x.name===s.goalie);
-        if(gp){const k=gp.name+"-"+gp.number;if(s.type==="Save")sv[k]=(sv[k]||0)+1;else if(s.type==="Goal Against")ga[k]=(ga[k]||0)+1;else if(s.type==="Opponent Shot Miss")sm[k]=(sm[k]||0)+1;}
+
+  // For each recorder, get their effective counts (tableOverrides if set, else raw counts)
+  // Then apply MAX across recorders
+  const fields=["goals","assists","shotsOnGoal","shotsMissed","groundballs","cto","saves","goalsAgainst","shotsAgainst","faceoffsTaken","faceoffsWon","penalties"];
+
+  Object.values(rMap).forEach(recData=>{
+    const recStats=computeRecorderStats(recData,roster);
+    Object.entries(recStats).forEach(([k,p])=>{
+      if(ps[k]){
+        fields.forEach(f=>{
+          if((p[f]||0)>ps[k][f]) ps[k][f]=p[f]||0;
+        });
       }
     });
-    Object.entries(sv).forEach(([k,v])=>{mxSv[k]=Math.max(mxSv[k]||0,v);});
-    Object.entries(ga).forEach(([k,v])=>{mxGA[k]=Math.max(mxGA[k]||0,v);});
-    Object.entries(sm).forEach(([k,v])=>{mxSM[k]=Math.max(mxSM[k]||0,v);});
   });
-  Object.keys(ps).forEach((k)=>{const sv=mxSv[k]||0,ga=mxGA[k]||0,sm=mxSM[k]||0;if(sv>0||ga>0||sm>0){ps[k].saves=sv;ps[k].goalsAgainst=ga;ps[k].shotsAgainst=sv+ga+sm;}});
-  return{playerStats:ps,totalGoals:Object.values(mxG).reduce((s,v)=>s+v,0),totalGA:Object.values(mxGA).reduce((s,v)=>s+v,0)};
+
+  const totalGoals=Object.values(ps).reduce((s,p)=>s+(p.goals||0),0);
+  const totalGA=Object.values(ps).reduce((s,p)=>s+(p.goalsAgainst||0),0);
+  return{playerStats:ps,totalGoals,totalGA};
 }
 
 async function loadGameMerge(gId,roster){
@@ -93,7 +112,8 @@ function LogoImg({size}){const sz=size||"lg";const[fail,setFail]=useState(false)
 function Btn({children,onClick,cls,disabled}){return<button onClick={onClick} disabled={disabled} className={"active:scale-95 transition-all "+(cls||"")}>{children}</button>;}
 function CopyBtn({label,doneLabel,cls}){const[d,setD]=useState(false);return<button onClick={async()=>{try{const el=document.getElementById("stats-table");const r=document.createRange();r.selectNode(el);window.getSelection().removeAllRanges();window.getSelection().addRange(r);document.execCommand("copy");window.getSelection().removeAllRanges();setD(true);setTimeout(()=>setD(false),2000);}catch(e){}}} className={"w-full py-3 rounded-lg font-black border-2 border-black active:scale-95 "+(d?"bg-green-600 text-white":"bg-blue-600 text-white")+" "+(cls||"")}>{d?doneLabel:label}</button>;}
 
-function StatsTable({playerStats}){
+function StatsTable({playerStats,tableId}){
+  const id=tableId||"stats-table";
   const hd=["#","Player","Pos","G","A","Shots","SOG","Shot%","GB","CTO","FO","FOW","FO%","SAV","GA","SA","SV%","PEN"];
   const tt={goals:0,assists:0,shotsOnGoal:0,shotsMissed:0,groundballs:0,cto:0,saves:0,goalsAgainst:0,shotsAgainst:0,faceoffsTaken:0,faceoffsWon:0,penalties:0};
   const sorted=sortForStats(Object.values(playerStats));
@@ -101,7 +121,7 @@ function StatsTable({playerStats}){
   const ttShots=tt.goals+tt.shotsOnGoal+tt.shotsMissed;const ttSOG=tt.goals+tt.shotsOnGoal;
   const C="p-2 text-center font-bold border border-gray-300";const CB="p-2 text-center border-2 border-black";
   return(
-    <div className="overflow-x-auto"><table id="stats-table" className="w-full text-sm border-2 border-black">
+    <div className="overflow-x-auto"><table id={id} className="w-full text-sm border-2 border-black">
       <thead className="bg-red-600 text-white"><tr>{hd.map((h)=><th key={h} className={CB+" font-black"}>{h}</th>)}</tr></thead>
       <tbody>
         {sorted.map((p,i)=>{const shots=p.goals+(p.shotsOnGoal||0)+(p.shotsMissed||0);const sog=p.goals+(p.shotsOnGoal||0);return(
@@ -134,6 +154,155 @@ function StatsTable({playerStats}){
   );
 }
 
+// ── Per-recorder editable stats table ──────────────────────────────────────
+const EDITABLE_COLS=[
+  {key:"goals",label:"G",w:"w-10"},
+  {key:"assists",label:"A",w:"w-10"},
+  {key:"shotsOnGoal",label:"SOG",w:"w-12"},
+  {key:"shotsMissed",label:"Miss",w:"w-12"},
+  {key:"groundballs",label:"GB",w:"w-10"},
+  {key:"cto",label:"CTO",w:"w-10"},
+  {key:"faceoffsTaken",label:"FO",w:"w-10"},
+  {key:"faceoffsWon",label:"FOW",w:"w-12"},
+  {key:"saves",label:"SAV",w:"w-10"},
+  {key:"goalsAgainst",label:"GA",w:"w-10"},
+  {key:"shotsAgainst",label:"SA",w:"w-10"},
+  {key:"penalties",label:"PEN",w:"w-10"},
+];
+
+function RecorderEditableTable({recData, roster, onSave, onClearOverrides, hasOverrides}){
+  const[local,setLocal]=useState(()=>computeRecorderStats(recData,roster));
+  const[saved,setSaved]=useState(false);
+  const sorted=sortForStats(Object.values(local));
+
+  const setField=(pk,field,val)=>{
+    setLocal(prev=>({...prev,[pk]:{...prev[pk],[field]:Math.max(0,parseInt(val)||0)}}));
+  };
+
+  const handleSave=async()=>{
+    // Build tableOverrides: only store players with any non-zero stat
+    const ovr={};
+    Object.entries(local).forEach(([k,p])=>{
+      const hasData=EDITABLE_COLS.some(({key})=>(p[key]||0)>0);
+      if(hasData) ovr[k]={...p};
+    });
+    await onSave(ovr);
+    setSaved(true);setTimeout(()=>setSaved(false),2000);
+  };
+
+  // Compute derived columns live
+  const shots=(p)=>(p.goals||0)+(p.shotsOnGoal||0)+(p.shotsMissed||0);
+  const sog=(p)=>(p.goals||0)+(p.shotsOnGoal||0);
+
+  const totals=EDITABLE_COLS.reduce((acc,{key})=>{acc[key]=sorted.reduce((s,p)=>s+(local[p.name+"-"+p.number]?.[key]||0),0);return acc;},{});
+  const totalShots=totals.goals+(totals.shotsOnGoal||0)+(totals.shotsMissed||0);
+  const totalSOG=totals.goals+(totals.shotsOnGoal||0);
+
+  const C="text-center border border-gray-300 text-xs";
+  const CB="text-center border-2 border-black text-xs font-black";
+  const inp="w-full text-center border border-gray-400 rounded font-black text-xs py-1 focus:outline-none focus:border-red-500 focus:ring-1 focus:ring-red-500";
+
+  return(
+    <div>
+      {hasOverrides&&<div className="flex gap-2 mb-2 items-center">
+        <span className="text-xs font-black text-orange-600 bg-orange-50 border border-orange-300 px-2 py-1 rounded">TABLE OVERRIDES ACTIVE</span>
+        <button onClick={onClearOverrides} className="text-xs font-black text-orange-700 underline active:scale-95">Clear &amp; reset from raw stats</button>
+      </div>}
+      <p className="text-xs text-gray-500 font-bold mb-2">Edit any cell. Percentages update live. Hit SAVE to apply to merge.</p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-2 border-black">
+          <thead className="bg-gray-800 text-white">
+            <tr>
+              <th className="p-1 text-left border border-gray-600 font-black">#</th>
+              <th className="p-1 text-left border border-gray-600 font-black">Player</th>
+              <th className="p-1 border border-gray-600 font-black">G</th>
+              <th className="p-1 border border-gray-600 font-black">A</th>
+              <th className="p-1 border border-gray-600 font-black">Sh</th>
+              <th className="p-1 border border-gray-600 font-black">SOG</th>
+              <th className="p-1 border border-gray-600 font-black text-yellow-300">Sh%</th>
+              <th className="p-1 border border-gray-600 font-black">GB</th>
+              <th className="p-1 border border-gray-600 font-black">CTO</th>
+              <th className="p-1 border border-gray-600 font-black">FO</th>
+              <th className="p-1 border border-gray-600 font-black">FOW</th>
+              <th className="p-1 border border-gray-600 font-black text-yellow-300">FO%</th>
+              <th className="p-1 border border-gray-600 font-black">SAV</th>
+              <th className="p-1 border border-gray-600 font-black">GA</th>
+              <th className="p-1 border border-gray-600 font-black">SA</th>
+              <th className="p-1 border border-gray-600 font-black text-yellow-300">SV%</th>
+              <th className="p-1 border border-gray-600 font-black">PEN</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((p,i)=>{
+              const pk=p.name+"-"+p.number;
+              const cur=local[pk]||p;
+              const sh=shots(cur);const sg=sog(cur);
+              return(
+                <tr key={pk} className={i%2===0?"bg-gray-50":"bg-white"}>
+                  <td className="p-1 font-black border border-gray-300 text-xs">{p.number}</td>
+                  <td className="p-1 font-bold border border-gray-300 text-xs whitespace-nowrap">{p.name}</td>
+                  {/* Editable: G */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.goals||0} onChange={e=>setField(pk,"goals",e.target.value)} className={inp}/></td>
+                  {/* Editable: A */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.assists||0} onChange={e=>setField(pk,"assists",e.target.value)} className={inp}/></td>
+                  {/* Computed: Shots */}
+                  <td className={C+" bg-yellow-50 font-bold"}>{sh||"-"}</td>
+                  {/* Editable: SOG */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.shotsOnGoal||0} onChange={e=>setField(pk,"shotsOnGoal",e.target.value)} className={inp}/></td>
+                  {/* Computed: Shot% */}
+                  <td className={C+" bg-yellow-50 font-bold"}>{pctFn(cur.goals||0,sh)}</td>
+                  {/* Editable: GB */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.groundballs||0} onChange={e=>setField(pk,"groundballs",e.target.value)} className={inp}/></td>
+                  {/* Editable: CTO */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.cto||0} onChange={e=>setField(pk,"cto",e.target.value)} className={inp}/></td>
+                  {/* Editable: FO */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.faceoffsTaken||0} onChange={e=>setField(pk,"faceoffsTaken",e.target.value)} className={inp}/></td>
+                  {/* Editable: FOW */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.faceoffsWon||0} onChange={e=>setField(pk,"faceoffsWon",e.target.value)} className={inp}/></td>
+                  {/* Computed: FO% */}
+                  <td className={C+" bg-yellow-50 font-bold"}>{pctFn(cur.faceoffsWon||0,cur.faceoffsTaken||0)}</td>
+                  {/* Editable: SAV */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.saves||0} onChange={e=>setField(pk,"saves",e.target.value)} className={inp}/></td>
+                  {/* Editable: GA */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.goalsAgainst||0} onChange={e=>setField(pk,"goalsAgainst",e.target.value)} className={inp}/></td>
+                  {/* Editable: SA */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.shotsAgainst||0} onChange={e=>setField(pk,"shotsAgainst",e.target.value)} className={inp}/></td>
+                  {/* Computed: SV% */}
+                  <td className={C+" bg-yellow-50 font-bold"}>{pctFn(cur.saves||0,(cur.saves||0)+(cur.goalsAgainst||0))}</td>
+                  {/* Editable: PEN */}
+                  <td className="p-0.5 border border-gray-300"><input type="number" min="0" value={cur.penalties||0} onChange={e=>setField(pk,"penalties",e.target.value)} className={inp}/></td>
+                </tr>
+              );
+            })}
+            {/* Totals row */}
+            <tr className="bg-red-600 text-white font-black text-xs">
+              <td className={CB} colSpan="2">TOTALS</td>
+              <td className={CB}>{totals.goals}</td>
+              <td className={CB}>{totals.assists}</td>
+              <td className={CB+" bg-red-700"}>{totalShots}</td>
+              <td className={CB}>{totalSOG}</td>
+              <td className={CB+" bg-red-700"}>{pctFn(totals.goals,totalShots)}</td>
+              <td className={CB}>{totals.groundballs}</td>
+              <td className={CB}>{totals.cto}</td>
+              <td className={CB}>{totals.faceoffsTaken}</td>
+              <td className={CB}>{totals.faceoffsWon}</td>
+              <td className={CB+" bg-red-700"}>{pctFn(totals.faceoffsWon,totals.faceoffsTaken)}</td>
+              <td className={CB}>{totals.saves}</td>
+              <td className={CB}>{totals.goalsAgainst}</td>
+              <td className={CB}>{totals.shotsAgainst}</td>
+              <td className={CB+" bg-red-700"}>{pctFn(totals.saves,totals.saves+totals.goalsAgainst)}</td>
+              <td className={CB}>{totals.penalties}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-gray-400 font-bold mt-1">Yellow columns are auto-calculated. White columns are editable. Shots = G + SOG + misses (edit SOG and Miss separately via stat list).</p>
+      <button onClick={handleSave} className={"w-full mt-3 py-3 rounded-lg font-black border-2 border-black active:scale-95 "+(saved?"bg-green-600 text-white border-green-700":"bg-gray-800 text-yellow-400 border-yellow-400")}>{saved?"✓ SAVED — MERGE UPDATED!":"SAVE TABLE EDITS"}</button>
+    </div>
+  );
+}
+// ───────────────────────────────────────────────────────────────────────────
+
 function PlayerSelectModal({title,subtitle,roster,onSelect,onCancel,skipLabel,highlighted}){return(
   <div className="fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto"><div className="min-h-screen flex items-center justify-center p-4"><div className="bg-white rounded-lg shadow-xl w-full max-w-md border-4 border-black my-8">
     <div className="bg-red-600 border-b-4 border-black p-4"><h3 className="text-xl font-black text-white">{title}</h3>{subtitle&&<p className="text-sm text-yellow-300 font-bold">{subtitle}</p>}</div>
@@ -158,34 +327,24 @@ function AssistSelectModal({goalPlayer,roster,onSelect,highlighted}){return(
   </div></div></div>
 );}
 
-// ── Opponent Shot modal — goalie shown prominently ──
-function OpponentShotModal({activeGoalie,goalieNumber,onResult,onCancel}){
-  return(
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg shadow-xl max-w-sm w-full border-4 border-black">
-        <div className="bg-red-600 border-b-4 border-black p-4">
-          <h3 className="text-xl font-black text-white">OPPONENT SHOT</h3>
-          <p className="text-xs text-yellow-200 font-bold mt-1">Confirm goalie before selecting result</p>
-        </div>
-        {/* Prominent goalie display */}
-        <div className="bg-yellow-400 border-b-4 border-black px-4 py-3 flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-black flex items-center justify-center font-black text-yellow-400 text-lg flex-shrink-0">{goalieNumber??""}</div>
-          <div>
-            <div className="text-xs font-black text-gray-700 uppercase tracking-wide">Active Goalie</div>
-            <div className="text-xl font-black text-black">{activeGoalie||"None set"}</div>
-          </div>
-          <div className="ml-auto text-2xl">🧤</div>
-        </div>
-        <div className="p-4 space-y-3">
-          <button onClick={()=>onResult("Save")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-green-500 text-white text-lg">SAVE</button>
-          <button onClick={()=>onResult("Miss")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-yellow-500 text-black text-lg">MISS (wide/over)</button>
-          <button onClick={()=>onResult("Goal")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-red-500 text-white text-lg">GOAL AGAINST</button>
-          <button onClick={onCancel} className="w-full py-3 bg-gray-600 text-white rounded-lg font-black border-2 border-black active:scale-95">CANCEL</button>
-        </div>
+function OpponentShotModal({activeGoalie,goalieNumber,onResult,onCancel}){return(
+  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+    <div className="bg-white rounded-lg shadow-xl max-w-sm w-full border-4 border-black">
+      <div className="bg-red-600 border-b-4 border-black p-4"><h3 className="text-xl font-black text-white">OPPONENT SHOT</h3><p className="text-xs text-yellow-200 font-bold mt-1">Confirm goalie before selecting result</p></div>
+      <div className="bg-yellow-400 border-b-4 border-black px-4 py-3 flex items-center gap-3">
+        <div className="w-12 h-12 rounded-full bg-black flex items-center justify-center font-black text-yellow-400 text-lg flex-shrink-0">{goalieNumber??""}</div>
+        <div><div className="text-xs font-black text-gray-700 uppercase tracking-wide">Active Goalie</div><div className="text-xl font-black text-black">{activeGoalie||"None set"}</div></div>
+        <div className="ml-auto text-2xl">🧤</div>
+      </div>
+      <div className="p-4 space-y-3">
+        <button onClick={()=>onResult("Save")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-green-500 text-white text-lg">SAVE</button>
+        <button onClick={()=>onResult("Miss")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-yellow-500 text-black text-lg">MISS (wide/over)</button>
+        <button onClick={()=>onResult("Goal")} className="w-full py-4 rounded-lg font-black border-2 border-black active:scale-95 bg-red-500 text-white text-lg">GOAL AGAINST</button>
+        <button onClick={onCancel} className="w-full py-3 bg-gray-600 text-white rounded-lg font-black border-2 border-black active:scale-95">CANCEL</button>
       </div>
     </div>
-  );
-}
+  </div>
+);}
 
 function ModalChoice({title,subtitle,choices,onCancel}){return(
   <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"><div className="bg-white rounded-lg shadow-xl max-w-sm w-full border-4 border-black">
@@ -237,7 +396,7 @@ function StatEditModal({stat,roster,onSave,onDelete,onCancel}){
   );
 }
 
-const EDITABLE_FIELDS=[
+const ALL_EDIT_FIELDS=[
   {key:"goals",label:"G"},{key:"assists",label:"A"},{key:"shotsOnGoal",label:"SOG"},
   {key:"shotsMissed",label:"Miss"},{key:"groundballs",label:"GB"},{key:"cto",label:"CTO"},
   {key:"faceoffsTaken",label:"FO"},{key:"faceoffsWon",label:"FOW"},{key:"saves",label:"SAV"},
@@ -253,10 +412,7 @@ function EditFinalStats({playerStats,onSave,onClearOverrides,hasOverrides}){
   const handleSave=async()=>{await onSave(local);setSaved(true);setTimeout(()=>setSaved(false),2000);};
   return(
     <div>
-      <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-3 mb-4 text-sm">
-        <p className="font-black text-yellow-800">⚠️ DIRECT EDIT MODE</p>
-        <p className="text-yellow-700 font-bold mt-1">Changes override merged data. Raw recorder sheets are preserved.</p>
-      </div>
+      <div className="bg-yellow-50 border-2 border-yellow-400 rounded-lg p-3 mb-4 text-sm"><p className="font-black text-yellow-800">⚠️ DIRECT EDIT MODE</p><p className="text-yellow-700 font-bold mt-1">Changes override merged data. Raw recorder sheets are preserved.</p></div>
       {hasOverrides&&<button onClick={onClearOverrides} className="w-full mb-3 py-2 bg-orange-100 text-orange-800 border-2 border-orange-400 rounded-lg font-black text-sm active:scale-95">↺ CLEAR OVERRIDES — revert to merged data</button>}
       <div className="space-y-2">
         {sorted.map((p)=>{
@@ -267,7 +423,7 @@ function EditFinalStats({playerStats,onSave,onClearOverrides,hasOverrides}){
               <span className="font-black text-sm">#{p.number} {p.name} <span className={isExp?"text-gray-400":"text-gray-500"}>{posAbbr(p.position)}</span></span>
               <span className={"text-xs font-bold "+(isExp?"text-gray-300":"text-gray-500")}>{cur.goals||0}G {cur.assists||0}A {shots}Sh {isExp?"▲":"▼"}</span>
             </button>
-            {isExp&&<div className="p-3 bg-white"><div className="grid grid-cols-3 gap-2">{EDITABLE_FIELDS.map(({key,label})=>(
+            {isExp&&<div className="p-3 bg-white"><div className="grid grid-cols-3 gap-2">{ALL_EDIT_FIELDS.map(({key,label})=>(
               <div key={key} className="flex flex-col items-center"><label className="text-xs font-black text-gray-600 mb-1">{label}</label><input type="number" min="0" value={cur[key]||0} onChange={e=>setField(pk,key,e.target.value)} className="w-full text-center px-1 py-2 border-2 border-black rounded font-black text-base"/></div>
             ))}</div></div>}
           </div>;
@@ -315,6 +471,7 @@ export default function App(){
   const[reviewTab,setReviewTab]=useState("merged");
   const[allRecStats,setAllRecStats]=useState({});
   const[expandedRec,setExpandedRec]=useState(null);
+  const[recSubTab,setRecSubTab]=useState({});  // per-recorder sub-tab: "list" | "table"
   const[editStatEntry,setEditStatEntry]=useState(null);
   const[recStatsLoading,setRecStatsLoading]=useState(false);
   const[overrides,setOverrides]=useState({});
@@ -369,6 +526,23 @@ export default function App(){
     setExpandedRec(null);await refreshMerge(curGameId,gr);
   };
 
+  // Save per-recorder table overrides
+  const doSaveRecorderTableOverrides=async(recorderNm,tableOverrides,gr)=>{
+    const recData={...(allRecStats[recorderNm]||{})};
+    recData.tableOverrides=tableOverrides;
+    await sSet("game:"+curGameId+":stats:"+recorderNm,recData);
+    setAllRecStats(prev=>({...prev,[recorderNm]:recData}));
+    await refreshMerge(curGameId,gr);
+  };
+
+  const doClearRecorderTableOverrides=async(recorderNm,gr)=>{
+    const recData={...(allRecStats[recorderNm]||{})};
+    delete recData.tableOverrides;
+    await sSet("game:"+curGameId+":stats:"+recorderNm,recData);
+    setAllRecStats(prev=>({...prev,[recorderNm]:recData}));
+    await refreshMerge(curGameId,gr);
+  };
+
   const doSaveOverrides=async(editedStats)=>{
     const ovr={};Object.entries(editedStats).forEach(([k,p])=>{ovr[k]={...p};});
     setOverrides(ovr);await sSet("game:"+curGameId+":overrides",ovr);
@@ -381,7 +555,7 @@ export default function App(){
 
   const openReview=async(g)=>{
     setCurGameId(g.id);setCurGame(g);setBusy(true);
-    setReviewTab("merged");setAllRecStats({});setExpandedRec(null);setEditStatEntry(null);setOverrides({});
+    setReviewTab("merged");setAllRecStats({});setExpandedRec(null);setEditStatEntry(null);setOverrides({});setRecSubTab({});
     const res=await loadGameMerge(g.id,g.roster||roster);setMergedData(res.merge);setRecorderList(res.recorders);
     if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);}
     const ovr=await sGet("game:"+g.id+":overrides")||{};setOverrides(ovr);
@@ -479,10 +653,8 @@ export default function App(){
   }
 
   if(screen==="tracking"){
-    const gr=gameRoster(curGame);
-    const goalies=gr.filter((p)=>p.position==="Goalie");
+    const gr=gameRoster(curGame);const goalies=gr.filter((p)=>p.position==="Goalie");
     const activeGoaliePlayer=goalies.find(g=>g.name===activeGoalie);
-
     const addStat=(s)=>setStats((prev)=>[...prev,{...s,recorder:recorderName,timestamp:Date.now()}]);
     const rec=(st)=>{if(["Shot","Faceoffs","Groundballs","CTO","Penalties"].includes(st))setShowPlayerSelect(st);else if(st==="Opponent Shot")setPendingStat({type:"Opponent Shot"});};
     const hPS=(p)=>{if(showPlayerSelect==="Shot")setPendingStat({type:"Shot",player:p});else if(showPlayerSelect==="Penalties")setPendingStat({type:"Penalties",player:p});else if(showPlayerSelect==="Faceoffs")setPendingStat({type:"Faceoffs",player:p});else if(showPlayerSelect==="CTO")setPendingStat({type:"CTO",player:p});else if(showPlayerSelect==="Groundballs")addStat({type:"Groundballs",player:p.name,number:p.number});setShowPlayerSelect(null);};
@@ -494,41 +666,23 @@ export default function App(){
     const hCTO=(choice)=>{addStat({type:"Turnovers Caused",player:pendingStat.player.name,number:pendingStat.player.number});if(choice==="Groundball")setPendingStat({type:"CTO-GB"});else setPendingStat(null);};
     const hGBSelect=(p)=>{if(p)addStat({type:"Groundballs",player:p.name,number:p.number});setPendingStat(null);};
     const undo=()=>{if(!stats.length)return;const l=stats[stats.length-1];if(l.type==="Goals")setGoalSeq((p)=>Math.max(0,p-1));else if(l.type==="Goal Against")setGaSeq((p)=>Math.max(0,p-1));setStats((p)=>p.slice(0,-1));};
-
     return(
       <div className="min-h-screen bg-gradient-to-br from-red-600 via-red-500 to-yellow-500 p-4 pb-20"><div className="max-w-2xl mx-auto">
-        {/* Header */}
         <div className="bg-white rounded-lg shadow-2xl p-4 mb-4 border-4 border-black">
           <div className="text-center mb-3"><LogoImg size="sm"/><h2 className="text-lg font-black">{curGame.date} vs {curGame.opponent}</h2><p className="text-xs font-bold text-gray-600">{curGame.location} · Rec: <span className="text-red-600">{recorderName}</span></p></div>
-          {/* Goalie selector — prominent */}
-          <div className="mt-2">
-            <p className="text-xs font-black text-gray-500 text-center mb-2 uppercase tracking-wide">Active Goalie</p>
-            <div className="flex justify-center gap-2 flex-wrap">
-              {goalies.map((g)=>(
-                <button key={g.id} onClick={()=>setActiveGoalie(g.name)} className={"flex items-center gap-2 px-4 py-2 rounded-lg font-black border-2 border-black transition-all "+(activeGoalie===g.name?"bg-yellow-400 text-black scale-105":"bg-white text-gray-700")}>
-                  <div className={"w-8 h-8 rounded-full flex items-center justify-center font-black text-sm "+(activeGoalie===g.name?"bg-black text-yellow-400":"bg-gray-200 text-gray-700")}>{g.number}</div>
-                  <span>{g.name}</span>
-                  {activeGoalie===g.name&&<span className="text-lg">🧤</span>}
-                </button>
-              ))}
-            </div>
+          <div className="mt-2"><p className="text-xs font-black text-gray-500 text-center mb-2 uppercase tracking-wide">Active Goalie</p>
+            <div className="flex justify-center gap-2 flex-wrap">{goalies.map((g)=>(
+              <button key={g.id} onClick={()=>setActiveGoalie(g.name)} className={"flex items-center gap-2 px-4 py-2 rounded-lg font-black border-2 border-black transition-all "+(activeGoalie===g.name?"bg-yellow-400 text-black scale-105":"bg-white text-gray-700")}>
+                <div className={"w-8 h-8 rounded-full flex items-center justify-center font-black text-sm "+(activeGoalie===g.name?"bg-black text-yellow-400":"bg-gray-200 text-gray-700")}>{g.number}</div>
+                <span>{g.name}</span>{activeGoalie===g.name&&<span>🧤</span>}
+              </button>))}</div>
           </div>
         </div>
-
-        {/* Scoreboard */}
-        <div className="bg-white rounded-lg shadow-2xl p-4 mb-4 border-4 border-black">
-          <div className="grid grid-cols-2 gap-4 text-center">
-            <div><div className="text-5xl font-black text-red-600">{goalSeq}</div><div className="text-sm font-bold text-gray-600 mt-1">Goals For</div></div>
-            <div><div className="text-5xl font-black text-gray-700">{gaSeq}</div><div className="text-sm font-bold text-gray-600 mt-1">Goals Against</div></div>
-          </div>
-        </div>
-
-        {/* Stat buttons */}
+        <div className="bg-white rounded-lg shadow-2xl p-4 mb-4 border-4 border-black"><div className="grid grid-cols-2 gap-4 text-center"><div><div className="text-5xl font-black text-red-600">{goalSeq}</div><div className="text-sm font-bold text-gray-600 mt-1">Goals For</div></div><div><div className="text-5xl font-black text-gray-700">{gaSeq}</div><div className="text-sm font-bold text-gray-600 mt-1">Goals Against</div></div></div></div>
         <div className="bg-white rounded-lg shadow-2xl p-4 border-4 border-black mb-4">
           <div className="flex justify-between items-center mb-3"><h3 className="font-black text-gray-800">RECORD STATS</h3>{stats.length>0&&<Btn onClick={undo} cls="flex items-center gap-1 px-3 py-1 bg-gray-600 text-white rounded-lg font-bold text-sm border-2 border-black"><Undo2 className="w-4 h-4"/>UNDO</Btn>}</div>
           <div className="grid grid-cols-2 gap-3">
             <Btn onClick={()=>rec("Shot")} cls="py-4 bg-green-600 text-white rounded-lg font-black border-2 border-black col-span-2">SHOT</Btn>
-            {/* Opponent Shot button shows active goalie name */}
             <Btn onClick={()=>rec("Opponent Shot")} cls="py-3 bg-red-600 text-white rounded-lg font-black border-2 border-black col-span-2">
               <div className="text-base font-black">OPPONENT SHOT</div>
               <div className="text-xs font-bold text-red-200 mt-0.5">🧤 {activeGoalie||"No goalie set"} {activeGoaliePlayer?"#"+activeGoaliePlayer.number:""}</div>
@@ -539,8 +693,6 @@ export default function App(){
             <Btn onClick={()=>rec("CTO")} cls="py-3 bg-black text-white rounded-lg font-black border-2 border-black">CAUSED TO</Btn>
           </div>
         </div>
-
-        {/* Recent stats */}
         <div className="bg-white rounded-lg shadow-2xl p-4 border-4 border-black">
           <h3 className="font-black text-gray-800 mb-2">RECENT (Last 10)</h3>
           <div className="space-y-1 max-h-48 overflow-y-auto">
@@ -554,10 +706,8 @@ export default function App(){
           </div>
           <div className="mt-2 text-xs text-gray-500 font-bold text-center">{stats.length} stats recorded</div>
         </div>
-
         <Btn onClick={async()=>{setBusy(true);await saveMyStats();const gr2=gameRoster(curGame);const res=await loadGameMerge(curGameId,gr2);setMergedData(res.merge);setRecorderList(res.recorders);if(res.merge){setGoalSeq(res.merge.totalGoals);setGaSeq(res.merge.totalGA);const ng=games.map((g)=>g.id===curGameId?{...g,goalsFor:res.merge.totalGoals,goalsAgainst:res.merge.totalGA}:g);await saveGames(ng);setCurGame(ng.find((g)=>g.id===curGameId));}setBusy(false);setScreen("review");}} cls="w-full mt-4 bg-black text-yellow-400 py-4 rounded-lg font-black text-lg border-2 border-yellow-400">{busy?"SAVING...":"SUBMIT STATS"}</Btn>
       </div>
-
       {showPlayerSelect&&!pendingGoal&&!pendingStat&&<PlayerSelectModal title="SELECT PLAYER" subtitle={showPlayerSelect} roster={gr} onSelect={hPS} onCancel={()=>setShowPlayerSelect(null)} highlighted={faceoffPlayers}/>}
       {pendingGoal&&!showPlayerSelect&&!pendingStat&&<AssistSelectModal goalPlayer={pendingGoal.player} roster={gr} onSelect={hAS} highlighted={faceoffPlayers}/>}
       {pendingStat?.type==="Shot"&&pendingStat.player&&!showPlayerSelect&&<ModalChoice title="SHOT RESULT" subtitle={pendingStat.player.name+" #"+pendingStat.player.number} choices={[{label:"SCORE",cls:"bg-green-500 text-white",action:()=>hSR("Score")},{label:"ON GOAL",cls:"bg-yellow-500 text-black",action:()=>hSR("On Goal")},{label:"MISS",cls:"bg-red-500 text-white",action:()=>hSR("Miss")}]} onCancel={()=>setPendingStat(null)}/>}
@@ -618,14 +768,17 @@ export default function App(){
           {recStatsLoading&&<div className="text-center py-8 text-gray-500 font-black">Loading...</div>}
           {!recStatsLoading&&Object.keys(allRecStats).filter(k=>!allRecStats[k].deleted).length===0&&<div className="text-center py-8"><p className="text-gray-500 font-bold mb-4">No data loaded.</p><button onClick={()=>loadAllRecStats(curGameId)} className="bg-blue-600 text-white px-6 py-3 rounded-lg font-black border-2 border-black active:scale-95">LOAD</button></div>}
           {!recStatsLoading&&Object.keys(allRecStats).length>0&&<div className="space-y-3">
-            <p className="text-xs text-gray-500 font-bold text-center">Timestamps shown per stat. Tap EDIT to fix player or goalie. DELETE SHEET removes all stats from that recorder.</p>
             {Object.entries(allRecStats).sort(([a],[b])=>a.localeCompare(b)).map(([nm,data])=>{
               if(data.deleted)return null;
-              const isExp=expandedRec===nm;const statList=data.stats||[];
-              const gCount=statList.filter(s=>s.type==="Goals").length;const gaCount=statList.filter(s=>s.type==="Goal Against").length;
+              const isExp=expandedRec===nm;
+              const statList=data.stats||[];
+              const gCount=statList.filter(s=>s.type==="Goals").length;
+              const gaCount=statList.filter(s=>s.type==="Goal Against").length;
+              const subTab=recSubTab[nm]||"list";
+              const hasRecOverrides=!!(data.tableOverrides&&Object.keys(data.tableOverrides).length>0);
               return<div key={nm} className="border-2 border-gray-300 rounded-lg overflow-hidden">
                 <button onClick={()=>setExpandedRec(isExp?null:nm)} className={"w-full p-3 flex justify-between items-center font-black text-left "+(isExp?"bg-gray-800 text-white":"bg-gray-100 text-gray-800 hover:bg-gray-200")}>
-                  <span className="text-base">{nm}</span>
+                  <span className="text-base">{nm}{hasRecOverrides&&<span className="ml-2 text-xs font-black text-orange-400">⚠️ overrides</span>}</span>
                   <div className="flex items-center gap-3 text-sm">
                     <span className={"font-bold "+(isExp?"text-green-300":"text-green-700")}>{gCount}G</span>
                     <span className={"font-bold "+(isExp?"text-red-300":"text-red-600")}>{gaCount}GA</span>
@@ -633,23 +786,42 @@ export default function App(){
                     <span>{isExp?"▲":"▼"}</span>
                   </div>
                 </button>
-                {isExp&&<div className="p-3 bg-white">
-                  <div className="space-y-1 max-h-80 overflow-y-auto">
-                    {statList.map((s,i)=>{
-                      const isGoalie=["Save","Goal Against","Opponent Shot Miss"].includes(s.type);
-                      return<div key={i} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded border border-gray-200 gap-2">
-                        <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
-                          <span className={"text-xs font-black px-2 py-0.5 rounded "+statTypeStyle(s.type)}>{s.type}</span>
-                          {s.player&&<span className="text-sm font-bold text-gray-800">{s.player} <span className="text-gray-500">#{s.number}</span></span>}
-                          {isGoalie&&s.goalie&&<span className="text-sm font-bold text-gray-700">🧤{s.goalie}</span>}
-                          {s.penaltyType&&<span className="text-xs text-orange-700 font-bold">{s.penaltyType}</span>}
-                          {s.timestamp&&<span className="text-xs text-gray-400 font-bold">{fmtTime(s.timestamp)}</span>}
-                        </div>
-                        <button onClick={()=>setEditStatEntry({recorder:nm,idx:i,stat:{...s}})} className="flex-shrink-0 px-2 py-1 bg-yellow-400 text-black rounded text-xs font-black border border-yellow-600 active:scale-95">EDIT</button>
-                      </div>;
-                    })}
+                {isExp&&<div className="bg-white">
+                  {/* Sub-tab bar */}
+                  <div className="flex border-b-2 border-gray-200">
+                    <button onClick={()=>setRecSubTab(prev=>({...prev,[nm]:"list"}))} className={"flex-1 py-2 text-xs font-black border-r border-gray-200 "+(subTab==="list"?"bg-gray-800 text-yellow-400":"bg-gray-50 text-gray-700 hover:bg-gray-100")}>STAT LIST</button>
+                    <button onClick={()=>setRecSubTab(prev=>({...prev,[nm]:"table"}))} className={"flex-1 py-2 text-xs font-black "+(subTab==="table"?"bg-gray-800 text-yellow-400":"bg-gray-50 text-gray-700 hover:bg-gray-100")}>STATS TABLE{hasRecOverrides?" ⚠️":""}</button>
                   </div>
-                  <button onClick={()=>setConfirmDelete({type:"sheet",label:nm+"'s entire sheet",onConfirm:()=>{doDeleteRecorder(nm,gr);setConfirmDelete(null);}})} className="mt-3 w-full py-2 bg-red-100 text-red-800 border-2 border-red-400 rounded-lg font-black text-sm active:scale-95">🗑 DELETE {nm}'S ENTIRE SHEET</button>
+
+                  {subTab==="list"&&<div className="p-3">
+                    <div className="space-y-1 max-h-80 overflow-y-auto">
+                      {statList.length===0&&<p className="text-gray-500 text-center font-bold py-4">No stats recorded.</p>}
+                      {statList.map((s,i)=>{
+                        const isGoalie=["Save","Goal Against","Opponent Shot Miss"].includes(s.type);
+                        return<div key={i} className="flex items-center justify-between py-2 px-3 bg-gray-50 rounded border border-gray-200 gap-2">
+                          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+                            <span className={"text-xs font-black px-2 py-0.5 rounded "+statTypeStyle(s.type)}>{s.type}</span>
+                            {s.player&&<span className="text-sm font-bold text-gray-800">{s.player} <span className="text-gray-500">#{s.number}</span></span>}
+                            {isGoalie&&s.goalie&&<span className="text-sm font-bold text-gray-700">🧤{s.goalie}</span>}
+                            {s.penaltyType&&<span className="text-xs text-orange-700 font-bold">{s.penaltyType}</span>}
+                            {s.timestamp&&<span className="text-xs text-gray-400 font-bold">{fmtTime(s.timestamp)}</span>}
+                          </div>
+                          <button onClick={()=>setEditStatEntry({recorder:nm,idx:i,stat:{...s}})} className="flex-shrink-0 px-2 py-1 bg-yellow-400 text-black rounded text-xs font-black border border-yellow-600 active:scale-95">EDIT</button>
+                        </div>;
+                      })}
+                    </div>
+                    <button onClick={()=>setConfirmDelete({type:"sheet",label:nm+"'s entire sheet",onConfirm:()=>{doDeleteRecorder(nm,gr);setConfirmDelete(null);}})} className="mt-3 w-full py-2 bg-red-100 text-red-800 border-2 border-red-400 rounded-lg font-black text-sm active:scale-95">🗑 DELETE {nm}'S ENTIRE SHEET</button>
+                  </div>}
+
+                  {subTab==="table"&&<div className="p-3">
+                    <RecorderEditableTable
+                      recData={data}
+                      roster={gr}
+                      hasOverrides={hasRecOverrides}
+                      onSave={(ovr)=>doSaveRecorderTableOverrides(nm,ovr,gr)}
+                      onClearOverrides={()=>doClearRecorderTableOverrides(nm,gr)}
+                    />
+                  </div>}
                 </div>}
               </div>;
             })}
@@ -659,7 +831,7 @@ export default function App(){
         {reviewTab==="editfinal"&&isAdmin&&<EditFinalStats playerStats={displayPs} onSave={doSaveOverrides} onClearOverrides={doClearOverrides} hasOverrides={hasOverrides}/>}
 
         {canReturn&&<Btn onClick={()=>setScreen("tracking")} cls="w-full mt-4 py-3 bg-green-600 text-white rounded-lg font-black border-2 border-black">RETURN TO GAME</Btn>}
-        <Btn onClick={()=>{setScreen("home");setMergedData(null);setRecorderList([]);setAllRecStats({});setExpandedRec(null);setOverrides({});}} cls="w-full mt-2 bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400">BACK TO HOME</Btn>
+        <Btn onClick={()=>{setScreen("home");setMergedData(null);setRecorderList([]);setAllRecStats({});setExpandedRec(null);setOverrides({});setRecSubTab({});}} cls="w-full mt-2 bg-black text-yellow-400 py-3 rounded-lg font-black text-lg border-2 border-yellow-400">BACK TO HOME</Btn>
       </div></div>
       {editStatEntry&&<StatEditModal stat={editStatEntry.stat} roster={gr} onSave={(ns)=>doSaveStatEdit(ns,gr)} onDelete={()=>doDeleteStatEntry(gr)} onCancel={()=>setEditStatEntry(null)}/>}
       {confirmDelete&&<ConfirmModal label={confirmDelete.label} onConfirm={confirmDelete.onConfirm||doDelete} onCancel={()=>setConfirmDelete(null)}/>}
@@ -701,3 +873,4 @@ export default function App(){
   }
   return null;
 }
+
